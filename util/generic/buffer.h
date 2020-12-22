@@ -2,12 +2,11 @@
 
 #include "utility.h"
 
+#include <util/generic/fwd.h>
 #include <util/system/align.h>
 #include <util/system/yassert.h>
 
 #include <cstring>
-
-class TString;
 
 class TBuffer {
 public:
@@ -81,6 +80,7 @@ public:
         return Pos_;
     }
 
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return !Size();
     }
@@ -168,18 +168,15 @@ public:
         }
     }
 
-    /*
-     * some helpers...
-     */
-    inline char* operator~() noexcept {
+    inline char* data() noexcept {
         return Data();
     }
 
-    inline const char* operator~() const noexcept {
+    inline const char* data() const noexcept {
         return Data();
     }
 
-    inline size_t operator+() const noexcept {
+    inline size_t size() const noexcept {
         return Size();
     }
 
@@ -211,6 +208,17 @@ public:
 
     inline TConstIterator End() const noexcept {
         return Begin() + Size();
+    }
+
+    bool operator==(const TBuffer& other) const noexcept {
+        if (Empty()) {
+            return other.Empty();
+        }
+        return Size() == other.Size() && 0 == std::memcmp(Data(), other.Data(), Size());
+    }
+
+    bool operator!=(const TBuffer& other) const noexcept {
+        return !(*this == other);
     }
 
 private:

@@ -7,13 +7,15 @@ LICENSE(
 
 
 NO_COMPILER_WARNINGS()
+NO_RUNTIME()
+NO_UTIL()
 
 INCLUDE(../list.inc)
 
 SRCDIR(contrib/libs/clapack)
 
 SRCS(
-lsame.c
+# lsame.c defined in cblas.
 lsamen.c
 maxloc.c
 sbdsdc.c
@@ -391,8 +393,8 @@ strttf.c
 strttp.c
 stzrqf.c
 stzrzf.c
-xerbla.c
-xerbla_array.c
+# xerbla.c defined in cblas.
+# xerbla_array.c defined in cblas.
 zbdsqr.c
 zcgesv.c
 zcposv.c

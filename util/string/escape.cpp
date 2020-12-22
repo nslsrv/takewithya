@@ -148,7 +148,7 @@ namespace {
 }
 
 template <class TChar>
-TGenericString<TChar>& EscapeCImpl(const TChar* str, size_t len, TGenericString<TChar>& r) {
+TBasicString<TChar>& EscapeCImpl(const TChar* str, size_t len, TBasicString<TChar>& r) {
     using TEscapeUtil = ::TEscapeUtil<TChar>;
 
     TChar buffer[TEscapeUtil::ESCAPE_C_BUFFER_SIZE];
@@ -178,7 +178,7 @@ template TUtf16String& EscapeCImpl<TUtf16String::TChar>(const TUtf16String::TCha
 
 namespace {
     template <class TStr>
-    inline void AppendUnicode(TStr& s, ui32 v) {
+    inline void AppendUnicode(TStr& s, wchar32 v) {
         char buf[10];
         size_t sz = 0;
 
@@ -186,7 +186,7 @@ namespace {
         s.AppendNoAlias(buf, sz);
     }
 
-    inline void AppendUnicode(TUtf16String& s, ui32 v) {
+    inline void AppendUnicode(TUtf16String& s, wchar32 v) {
         WriteSymbol(v, s);
     }
 
@@ -260,11 +260,12 @@ static TStr& DoUnescapeC(const TChar* p, size_t sz, TStr& res) {
                     res.append('\v');
                     break;
                 case 'u': {
-                    wchar16 cp[2];
+                    ui16 cp[2];
 
                     if (ParseHex<4>(p + 1, pe, cp[0])) {
                         if (Y_UNLIKELY(cp[0] >= 0xD800 && cp[0] <= 0xDBFF && ParseHex<4>(p + 7, pe, cp[1]) && p[5] == '\\' && p[6] == 'u')) {
-                            AppendUnicode(res, ReadSymbol(cp, cp + 2));
+                            const wchar16 wbuf[] = {wchar16(cp[0]), wchar16(cp[1])};
+                            AppendUnicode(res, ReadSymbol(wbuf, wbuf + 2));
                             p += 10;
                         } else {
                             AppendUnicode(res, (wchar32)cp[0]);
@@ -278,11 +279,12 @@ static TStr& DoUnescapeC(const TChar* p, size_t sz, TStr& res) {
                 }
 
                 case 'U':
-                    if (CountHex<8>(p + 1, pe) != 8)
+                    if (CountHex<8>(p + 1, pe) != 8) {
                         res.append(*p);
-                    else
-                        // TODO(pg): bug here, missing p += 8 ? need test
+                    } else {
                         AppendUnicode(res, IntFromString<ui32, 16>(p + 1, 8));
+                        p += 8;
+                    }
                     break;
                 case 'x':
                     if (ui32 v = CountHex<2>(p + 1, pe)) {
@@ -328,7 +330,7 @@ static TStr& DoUnescapeC(const TChar* p, size_t sz, TStr& res) {
 }
 
 template <class TChar>
-TGenericString<TChar>& UnescapeCImpl(const TChar* p, size_t sz, TGenericString<TChar>& res) {
+TBasicString<TChar>& UnescapeCImpl(const TChar* p, size_t sz, TBasicString<TChar>& res) {
     return DoUnescapeC(p, sz, res);
 }
 
@@ -402,33 +404,33 @@ template size_t UnescapeCCharLen<char>(const char* begin, const char* end);
 template size_t UnescapeCCharLen<TUtf16String::TChar>(const TUtf16String::TChar* begin, const TUtf16String::TChar* end);
 
 TString& EscapeC(const TStringBuf str, TString& s) {
-    return EscapeC(~str, +str, s);
+    return EscapeC(str.data(), str.size(), s);
 }
 
 TUtf16String& EscapeC(const TWtringBuf str, TUtf16String& w) {
-    return EscapeC(~str, +str, w);
+    return EscapeC(str.data(), str.size(), w);
 }
 
 TString EscapeC(const TString& str) {
-    return EscapeC(~str, +str);
+    return EscapeC(str.data(), str.size());
 }
 
 TUtf16String EscapeC(const TUtf16String& str) {
-    return EscapeC(~str, +str);
+    return EscapeC(str.data(), str.size());
 }
 
 TString& UnescapeC(const TStringBuf str, TString& s) {
-    return UnescapeC(~str, +str, s);
+    return UnescapeC(str.data(), str.size(), s);
 }
 
 TUtf16String& UnescapeC(const TWtringBuf str, TUtf16String& w) {
-    return UnescapeC(~str, +str, w);
+    return UnescapeC(str.data(), str.size(), w);
 }
 
 TString UnescapeC(const TStringBuf str) {
-    return UnescapeC(~str, +str);
+    return UnescapeC(str.data(), str.size());
 }
 
 TUtf16String UnescapeC(const TWtringBuf str) {
-    return UnescapeC(~str, +str);
+    return UnescapeC(str.data(), str.size());
 }

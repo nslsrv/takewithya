@@ -1,4 +1,4 @@
-from __future__ import with_statement
+from __future__ import absolute_import
 
 import os
 import sys
@@ -10,24 +10,14 @@ try:
 except ImportError:
     have_lxml = False
     try:
-        # Python 2.5
         from xml.etree import cElementTree as etree
     except ImportError:
         try:
-            # Python 2.5
             from xml.etree import ElementTree as etree
         except ImportError:
-            try:
-                # normal cElementTree install
-                import cElementTree as etree
-            except ImportError:
-                try:
-                    # normal ElementTree install
-                    import elementtree.ElementTree as etree
-                except ImportError:
-                    etree = None
+            etree = None
 
-from Cython.Compiler import Errors
+from ..Compiler import Errors
 
 
 class CythonDebugWriter(object):
@@ -52,6 +42,10 @@ class CythonDebugWriter(object):
         self.tb.start(name, attrs or {})
 
     def end(self, name):
+        self.tb.end(name)
+
+    def add_entry(self, name, **attrs):
+        self.tb.start(name, attrs)
         self.tb.end(name)
 
     def serialize(self):

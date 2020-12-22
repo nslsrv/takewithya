@@ -1,6 +1,6 @@
 #include "explicit_type.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 struct TCallableBase {
 public:
@@ -11,7 +11,7 @@ public:
     static TNo Test(const T&, const Arg&, ...);
 
     template <class T, class Arg>
-    static TYes Test(const T&, const Arg&, int, decltype(std::declval<T>()(std::declval<Arg>())) * = nullptr);
+    static TYes Test(const T&, const Arg&, int, decltype(std::declval<T>()(std::declval<Arg>()))* = nullptr);
 };
 
 template <class T, class Arg>
@@ -38,8 +38,8 @@ struct IntConstructible {
     }
 };
 
-SIMPLE_UNIT_TEST_SUITE(TestExplicitType) {
-    SIMPLE_UNIT_TEST(Test1) {
+Y_UNIT_TEST_SUITE(TestExplicitType) {
+    Y_UNIT_TEST(Test1) {
         UNIT_ASSERT_VALUES_EQUAL(static_cast<bool>(TCallable<TExplicitlyCallable<char>, char>::Result), true);
         UNIT_ASSERT_VALUES_EQUAL(static_cast<bool>(TCallable<TExplicitlyCallable<char>, int>::Result), false);
         UNIT_ASSERT_VALUES_EQUAL(static_cast<bool>(TCallable<TExplicitlyCallable<char>, wchar_t>::Result), false);

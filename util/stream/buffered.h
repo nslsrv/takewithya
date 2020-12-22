@@ -1,7 +1,7 @@
 #pragma once
 
-#include "output.h"
 #include "zerocopy.h"
+#include "zerocopy_output.h"
 
 #include <utility>
 #include <util/generic/ptr.h>
@@ -20,9 +20,13 @@
  * Note that it does not claim ownership of the underlying stream, so it's up
  * to the user to free it.
  */
-class TBufferedInput: public TZeroCopyInput {
+class TBufferedInput: public IZeroCopyInput {
 public:
-    TBufferedInput(TInputStream* slave, size_t buflen = 8192);
+    TBufferedInput(IInputStream* slave, size_t buflen = 8192);
+
+    TBufferedInput(TBufferedInput&&) noexcept;
+    TBufferedInput& operator=(TBufferedInput&&) noexcept;
+
     ~TBufferedInput() override;
 
     /**
@@ -31,7 +35,7 @@ public:
      *
      * @param slave                     New underlying stream.
      */
-    void Reset(TInputStream* slave);
+    void Reset(IInputStream* slave);
 
 protected:
     size_t DoRead(void* buf, size_t len) override;
@@ -55,7 +59,7 @@ private:
  * Also note that this stream does not claim ownership of the underlying stream,
  * so it's up to the user to free it.
  */
-class TBufferedOutputBase: public TOutputStream {
+class TBufferedOutputBase: public IZeroCopyOutput {
 public:
     /**
      * Constructs a buffered stream that dynamically adjusts the size of the
@@ -65,7 +69,7 @@ public:
      *
      * @param slave                     Underlying stream.
      */
-    TBufferedOutputBase(TOutputStream* slave);
+    TBufferedOutputBase(IOutputStream* slave);
 
     /**
      * Constructs a buffered stream with the given size of the buffer.
@@ -73,10 +77,10 @@ public:
      * @param slave                     Underlying stream.
      * @param buflen                    Size of the buffer.
      */
-    TBufferedOutputBase(TOutputStream* slave, size_t buflen);
+    TBufferedOutputBase(IOutputStream* slave, size_t buflen);
 
-    TBufferedOutputBase(TBufferedOutputBase&&) noexcept = default;
-    TBufferedOutputBase& operator=(TBufferedOutputBase&&) noexcept = default;
+    TBufferedOutputBase(TBufferedOutputBase&&) noexcept;
+    TBufferedOutputBase& operator=(TBufferedOutputBase&&) noexcept;
 
     ~TBufferedOutputBase() override;
 
@@ -107,7 +111,10 @@ public:
     class TImpl;
 
 protected:
+    size_t DoNext(void** ptr) override;
+    void DoUndo(size_t len) override;
     void DoWrite(const void* data, size_t len) override;
+    void DoWriteC(char c) override;
     void DoFlush() override;
     void DoFinish() override;
 
@@ -122,7 +129,7 @@ private:
  */
 class TBufferedOutput: public TBufferedOutputBase {
 public:
-    TBufferedOutput(TOutputStream* slave, size_t buflen = 8192);
+    TBufferedOutput(IOutputStream* slave, size_t buflen = 8192);
     ~TBufferedOutput() override;
 
     TBufferedOutput(TBufferedOutput&&) noexcept = default;
@@ -137,7 +144,7 @@ public:
  */
 class TAdaptiveBufferedOutput: public TBufferedOutputBase {
 public:
-    TAdaptiveBufferedOutput(TOutputStream* slave);
+    TAdaptiveBufferedOutput(IOutputStream* slave);
     ~TAdaptiveBufferedOutput() override;
 
     TAdaptiveBufferedOutput(TAdaptiveBufferedOutput&&) noexcept = default;
@@ -146,7 +153,7 @@ public:
 
 namespace NPrivate {
     struct TMyBufferedOutput: public TBufferedOutput {
-        inline TMyBufferedOutput(TOutputStream* slave, size_t buflen)
+        inline TMyBufferedOutput(IOutputStream* slave, size_t buflen)
             : TBufferedOutput(slave, buflen)
         {
             SetFinishPropagateMode(true);
@@ -155,7 +162,7 @@ namespace NPrivate {
 
     template <class T>
     struct TBufferedStreamFor {
-        using TResult = std::conditional_t<std::is_base_of<TInputStream, T>::value, TBufferedInput, TMyBufferedOutput>;
+        using TResult = std::conditional_t<std::is_base_of<IInputStream, T>::value, TBufferedInput, TMyBufferedOutput>;
     };
 }
 
@@ -163,13 +170,13 @@ namespace NPrivate {
  * A mixin class that turns unbuffered stream into a buffered one.
  *
  * Note that using this mixin with a stream that is already buffered won't
- * result in double buffering, e.g. `TBuffered<TBuffered<TFileInput>>` and
- * `TBuffered<TFileInput>` are basically the same types.
+ * result in double buffering, e.g. `TBuffered<TBuffered<TUnbufferedFileInput>>` and
+ * `TBuffered<TUnbufferedFileInput>` are basically the same types.
  *
  * Example usage:
  * @code
- * TBuffered<TFileInput> file_input(1024, "/path/to/file");
- * TBuffered<TFileOutput> file_output(1024, "/path/to/file");
+ * TBuffered<TUnbufferedFileInput> file_input(1024, "/path/to/file");
+ * TBuffered<TUnbufferedFileOutput> file_output(1024, "/path/to/file");
  * @endcode
  * Here 1024 is the size of the buffer.
  */
@@ -199,7 +206,7 @@ public:
  *
  * Example usage:
  * @code
- * TAdaptivelyBuffered<TFileOutput> file_output("/path/to/file");
+ * TAdaptivelyBuffered<TUnbufferedFileOutput> file_output("/path/to/file");
  * @endcode
  */
 template <class TSlave>
@@ -212,7 +219,6 @@ public:
         : TSlaveBase(std::forward<Args>(args)...)
         , TAdaptiveBufferedOutput(TSlaveBase::Ptr())
     {
-        this->SetFinishPropagateMode(true);
     }
 };
 

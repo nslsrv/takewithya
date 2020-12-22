@@ -19,8 +19,16 @@
 #include <sys/param.h>
 #endif
 
+#if defined(BSD) || defined(_android_)
+
 #if defined(BSD)
 #include <machine/endian.h>
+#endif
+
+#if defined(_android_)
+#include <endian.h>
+#endif
+
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 #define _little_endian_
 #elif (BYTE_ORDER == BIG_ENDIAN)
@@ -28,6 +36,7 @@
 #else
 #error unknown endian not supported
 #endif
+
 #elif (defined(_sun_) && !defined(__i386__)) || defined(_hpux_) || defined(WHATEVER_THAT_HAS_BIG_ENDIAN)
 #define _big_endian_
 #else
@@ -57,97 +66,6 @@
 
 #include "types.h"
 
-typedef ui16 alias_hack ui16a;
-typedef ui32 alias_hack ui32a;
-typedef ui64 alias_hack ui64a;
-
-#if defined(__cplusplus)
-#if defined(_big_endian_)
-union u_u16 {
-    ui16a v;
-    struct {
-        ui8 hi8, lo8;
-    } u;
-} alias_hack;
-union u_u32 {
-    ui32a v;
-    float alias_hack f;
-    struct {
-        u_u16 hi16, lo16;
-    } u;
-} alias_hack;
-union u_u64 {
-    ui64a v;
-    double alias_hack f;
-    struct {
-        u_u32 hi32, lo32;
-    } u;
-} alias_hack;
-#else /* _little_endian_ */
-union u_u16 {
-    ui16a v;
-    struct {
-        ui8 lo8, hi8;
-    } alias_hack u;
-} alias_hack;
-union u_u32 {
-    ui32a v;
-    float alias_hack f;
-    struct {
-        u_u16 lo16, hi16;
-    } u;
-} alias_hack;
-union u_u64 {
-    ui64a v;
-    double alias_hack f;
-    struct {
-        u_u32 lo32, hi32;
-    } u;
-} alias_hack;
-#endif
-#endif
-
-#ifdef CHECK_LO_HI_MACRO_USAGE
-
-inline void check_64(const ui64&) {
-}
-inline void check_64(const i64&) {
-}
-inline void check_64(const double&) {
-}
-inline void check_32(const ui32&) {
-}
-inline void check_32(const i32&) {
-}
-inline void check_32(const float&) {
-}
-inline void check_16(const ui16&) {
-}
-inline void check_16(const i16&) {
-}
-
-#define LO_32(x) (check_64(x), (ui32&)(*(u_u64*)&x).u.lo32.v)
-#define HI_32(x) (check_64(x), (ui32&)(*(u_u64*)&x).u.hi32.v)
-#define LO_16(x) (check_32(x), (ui16&)(*(u_u32*)&x).u.lo16.v)
-#define HI_16(x) (check_32(x), (ui16&)(*(u_u32*)&x).u.hi16.v)
-#define LO_8(x) (check_16(x), (*(u_u16*)&x).u.lo8)
-#define HI_8(x) (check_16(x), (*(u_u16*)&x).u.hi8)
-#define LO_8_LO_16(x) (check_32(x), (*(u_u32*)&x).u.lo16.u.lo8)
-#define HI_8_LO_16(x) (check_32(x), (*(u_u32*)&x).u.lo16.u.hi8)
-
-#else
-
-#define LO_32(x) ((ui32&)(*(u_u64*)&x).u.lo32.v)
-#define HI_32(x) ((ui32&)(*(u_u64*)&x).u.hi32.v)
-#define LO_16(x) ((ui16&)(*(u_u32*)&x).u.lo16.v)
-#define HI_16(x) ((ui16&)(*(u_u32*)&x).u.hi16.v)
-#define LO_8(x) (*(u_u16*)&x).u.lo8
-#define HI_8(x) (*(u_u16*)&x).u.hi8
-#define LO_8_LO_16(x) (*(u_u32*)&x).u.lo16.u.lo8
-#define HI_8_LO_16(x) (*(u_u32*)&x).u.lo16.u.hi8
-
-#endif // CHECK_LO_HI_MACRO_USAGE
-
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
 #define PRAGMA(x) _Pragma(#x)
 #define RCSID(idstr) PRAGMA(comment(exestr, idstr))
@@ -156,12 +74,6 @@ inline void check_16(const i16&) {
 #endif
 
 #include "compiler.h"
-
-/// Deprecated. Use TNonCopyable instead (util/generic/noncopyable.h)
-#define Y_DISABLE_COPY(aClass) \
-private:                       \
-    aClass(const aClass&);     \
-    aClass& operator=(const aClass&)
 
 #ifdef _win_
 #include <malloc.h>

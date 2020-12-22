@@ -61,7 +61,7 @@
         //...later somewhere in cpp...
         TMyWriter*& writerRef = ThreadLocalWriter.Get();
         if (writerRef == nullptr) {
-            TAutoPtr<TMyWriter> threadLocalWriter( new TMyWriter(
+            THolder<TMyWriter> threadLocalWriter( new TMyWriter(
                 *Session,
                 MinLogError,
                 MaxRps,
@@ -157,6 +157,7 @@ namespace NTls {
     class TKey {
     public:
         TKey(TDtor dtor);
+        TKey(TKey&&) noexcept;
         ~TKey();
 
         void* Get() const;
@@ -176,7 +177,7 @@ namespace NTls {
     };
 
     template <class T>
-    class TValue: public TNonCopyable {
+    class TValue: public TMoveOnly {
         class TConstructor {
         public:
             TConstructor() noexcept = default;
@@ -268,7 +269,7 @@ namespace NTls {
                 THolder<void> mem(::operator new(sizeof(T)));
                 THolder<T> newval(Constructor_->Construct(mem.Get()));
 
-                mem.Release();
+                Y_UNUSED(mem.Release());
                 Key_.Set((void*)newval.Get());
                 val = newval.Release();
             }

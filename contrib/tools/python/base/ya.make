@@ -1,19 +1,27 @@
 LIBRARY()
 
+LICENSE(
+    PSF
+)
+
 
 
 NO_WSHADOW()
 ENABLE(NO_WIN32_LEAN)
 
-SRCDIR(
-    contrib/tools/python/src
+CFLAGS(
+    GLOBAL -DARCADIA_PYTHON_UNICODE_SIZE=${ARCADIA_PYTHON_UNICODE_SIZE}
 )
 
-IF (OS_DARWIN)
-    ADDINCL(
-        contrib/tools/python/base/darwin
+IF (NOT MSVC)
+    CFLAGS(
+        -fwrapv
     )
-ENDIF ()
+ENDIF()
+
+SRCDIR(
+    contrib/tools/python/src/Include
+)
 
 INCLUDE(${ARCADIA_ROOT}/contrib/tools/python/pyconfig.inc)
 INCLUDE(CMakeLists.inc)

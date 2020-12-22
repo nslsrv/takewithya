@@ -1,6 +1,6 @@
 #include "pool.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/stream/output.h>
 
@@ -83,6 +83,7 @@ class TMemPoolTest: public TTestBase {
     UNIT_TEST(TestZeroArray)
     UNIT_TEST(TestLargeStartingAlign)
     UNIT_TEST(TestMoveAlloc)
+    UNIT_TEST(TestRoundUpToNextPowerOfTwoOption)
     UNIT_TEST_SUITE_END();
 
 private:
@@ -125,6 +126,12 @@ private:
                 UNIT_ASSERT(m);
                 memset(m, 0, i);
             }
+
+            pool.Clear();
+
+            UNIT_ASSERT_VALUES_EQUAL(0, pool.MemoryAllocated());
+            UNIT_ASSERT_VALUES_EQUAL(0, pool.MemoryWaste());
+            UNIT_ASSERT_VALUES_EQUAL(0, pool.Available());
         }
 
         alloc.CheckAtEnd();
@@ -173,6 +180,14 @@ private:
         void* aligned8 = pool.Allocate(3, 8);
         void* aligned1024 = pool.Allocate(3, 1024);
 
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned16, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned2, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned128, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned4, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned256, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned8, nullptr);
+        UNIT_ASSERT_VALUES_UNEQUAL(aligned1024, nullptr);
+
         UNIT_ASSERT_VALUES_EQUAL(reinterpret_cast<uintptr_t>(aligned2) & 1, 0);
         UNIT_ASSERT_VALUES_EQUAL(reinterpret_cast<uintptr_t>(aligned4) & 3, 0);
         UNIT_ASSERT_VALUES_EQUAL(reinterpret_cast<uintptr_t>(aligned8) & 7, 0);
@@ -213,7 +228,7 @@ private:
     void CheckMoveAlloc() {
         TMemoryPool pool(10 * sizeof(T));
 
-        yvector<T, TPoolAllocator> elems(&pool);
+        TVector<T, TPoolAllocator> elems(&pool);
         elems.reserve(1);
         elems.emplace_back();
         elems.resize(100);
@@ -223,6 +238,47 @@ private:
         CheckMoveAlloc<TNoMove>();
         CheckMoveAlloc<TNoCopy>();
         CheckMoveAlloc<TErrorOnCopy>();
+    }
+
+    void TestRoundUpToNextPowerOfTwoOption() {
+        const size_t MEMORY_POOL_BLOCK_SIZE = (1024 - 16) * 4096 - 16 - 16 - 32;
+
+        class TFixedBlockSizeMemoryPoolPolicy final: public TMemoryPool::IGrowPolicy {
+        public:
+            size_t Next(size_t /*prev*/) const noexcept override {
+                return MEMORY_POOL_BLOCK_SIZE;
+            }
+        };
+        TFixedBlockSizeMemoryPoolPolicy allocationPolicy;
+
+        class TTestAllocator final: public TDefaultAllocator {
+        public:
+            TBlock Allocate(size_t len) override {
+                Size_ += len;
+                return TDefaultAllocator::Allocate(len);
+            }
+
+            size_t GetSize() const {
+                return Size_;
+            }
+
+        private:
+            size_t Size_ = 0;
+        };
+
+        TTestAllocator allocator;
+
+        TMemoryPool::TOptions options;
+        options.RoundUpToNextPowerOfTwo = false;
+
+        constexpr size_t EXPECTED_ALLOCATION_SIZE = MEMORY_POOL_BLOCK_SIZE + 32;
+        TMemoryPool pool(MEMORY_POOL_BLOCK_SIZE, &allocationPolicy, &allocator, options);
+
+        pool.Allocate(MEMORY_POOL_BLOCK_SIZE);
+        UNIT_ASSERT_VALUES_EQUAL(EXPECTED_ALLOCATION_SIZE, allocator.GetSize());
+
+        pool.Allocate(1);
+        UNIT_ASSERT_VALUES_EQUAL(2 * EXPECTED_ALLOCATION_SIZE, allocator.GetSize());
     }
 };
 

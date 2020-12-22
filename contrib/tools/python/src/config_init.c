@@ -5,6 +5,7 @@
 extern void init_bisect(void);
 extern void init_collections(void);
 extern void init_csv(void);
+extern void init_elementtree(void);
 extern void init_functools(void);
 extern void init_hashlib(void);
 extern void init_heapq(void);
@@ -19,7 +20,6 @@ extern void init_random(void);
 extern void init_sha(void);
 extern void init_sha256(void);
 extern void init_sha512(void);
-extern void init_sqlite3(void);
 extern void init_ssl(void);
 extern void init_struct(void);
 extern void initarray(void);
@@ -41,10 +41,6 @@ extern void inittime(void);
 extern void initunicodedata(void);
 extern void initzlib(void);
 
-#ifdef _HAVE_NIS
-extern void initnis(void);
-#endif
-
 #ifdef _FREEBSD_
 extern void init_multiprocessing(void);
 extern void init_multiprocessing(void);
@@ -56,7 +52,10 @@ extern void initspwd(void);
 #endif
 
 #ifdef _DARWIN_
+#ifndef __IOS__
 extern void init_multiprocessing(void);
+extern void init_scproxy(void);
+#endif
 #endif
 
 #ifdef _CYGWIN_
@@ -64,7 +63,6 @@ extern void init_multiprocessing(void);
 #endif
 
 #ifdef _UNIX_
-extern void init_elementtree(void);
 extern void init_socket(void);
 extern void initcrypt(void);
 extern void initfcntl(void);
@@ -79,7 +77,6 @@ extern void inittermios(void);
 #endif
 
 #ifdef _WIN32_
-extern void init_elementtree(void);
 extern void init_multiprocessing(void);
 extern void init_socket(void);
 extern void initnt(void);
@@ -90,6 +87,6 @@ extern void init_subprocess(void);
 extern void init_winreg(void);
 #endif
 
-#if !defined(_ARM_) && !defined(_CYGWIN_)
+#if !defined(_CYGWIN_)
 extern void init_ctypes(void);
 #endif

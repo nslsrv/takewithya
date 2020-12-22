@@ -1,21 +1,48 @@
 #include "patch.h"
 
-#include <library/getopt/last_getopt.h>
+#include <library/cpp/getopt/last_getopt.h>
 
 #include <util/generic/algorithm.h>
 #include <util/generic/hash.h>
 #include <util/stream/null.h>
 #include <util/string/cast.h>
+#include <util/system/defaults.h>
 
 namespace NElf {
 
-const TStringBuf Magic = AsStringBuf("\x7f""ELF");
-
 bool IsElf(const TString& path) {
-    TFileInput in(path);
-    char buffer[Magic.size()];
-    in.Read(buffer, Magic.size());
-    return Magic == TStringBuf(buffer, Magic.size());
+    TUnbufferedFileInput in(path);
+    char buffer[EI_NIDENT];
+    size_t nread = in.Load(buffer, sizeof(buffer));
+
+    if (nread != sizeof(buffer) || TStringBuf(buffer, SELFMAG) != ELFMAG) {
+        Cerr << "fix_elf skip " << path << " (not an ELF file)";
+        return false;
+    }
+
+    if (buffer[EI_CLASS] != ELFCLASS64) {
+        Cerr << "fix_elf skip " << path << " (ELF class is not ELF64)";
+        return false;
+    }
+
+#ifdef _little_endian_
+    if (buffer[EI_DATA] != ELFDATA2LSB) {
+        Cerr << "fix_elf skip " << path << " (ELF byte order is not native LSB)";
+        return false;
+    }
+#else
+    if (buffer[EI_DATA] != ELFDATA2MSB) {
+        Cerr << "fix_elf skip " << path << " (ELF byte order is not native MSB)";
+        return false;
+    }
+#endif
+
+    if (buffer[EI_VERSION] != 1) {
+        Cerr << "fix_elf skip " << path << " (ELF version is not 1)";
+        return false;
+    }
+
+    return true;
 }
 
 } // namespace NElf
@@ -34,7 +61,7 @@ void ReadNum(TStringBuf& src, TStringBuf& dst) {
 }
 
 int NumericStrCmp(TStringBuf s1, TStringBuf s2) {
-    while (!s1.Empty() || !s2.Empty()) {
+    while (!s1.empty() || !s2.empty()) {
         char c1 = *s1.data();
         char c2 = *s2.data();
 
@@ -55,8 +82,8 @@ int NumericStrCmp(TStringBuf s1, TStringBuf s2) {
             }
         }
 
-        ++s1;
-        ++s2;
+        s1.Skip(1);
+        s2.Skip(1);
     }
 
     return 0;
@@ -80,7 +107,7 @@ private:
     TSection StrSect;
 };
 
-void Patch(const TString& path, const TString& library, TOutputStream& verboseOut) {
+void Patch(const TString& path, const TString& library, IOutputStream& verboseOut) {
     TElf elf(path);
 
     TVerneedSection verneedSect(&elf);
@@ -94,7 +121,7 @@ void Patch(const TString& path, const TString& library, TOutputStream& verboseOu
     TStringBuf skipFrom("GLIBC_2.14");
     TStringBuf patchFrom("GLIBC_2.2.5");
 
-    yvector<Elf64_Vernaux*> patchAux;
+    TVector<Elf64_Vernaux*> patchAux;
 
     Elf64_Vernaux* patchFromAux = nullptr;
 
@@ -170,8 +197,31 @@ void Patch(const TString& path, const TString& library, TOutputStream& verboseOu
     }
 }
 
+void PatchGnuUnique(const TString& path, IOutputStream& verboseOut) {
+    TElf elf(path);
+
+    for (Elf64_Shdr* it = elf.GetSectionBegin(), *end = elf.GetSectionEnd(); it != end; ++it) {
+        if (it->sh_type == SHT_SYMTAB) {
+
+            TSection section{&elf, it};
+            verboseOut << "Found symbol section [" << section.GetName() << ']' << Endl;
+
+            for (size_t i = 0, count = section.GetEntryCount(); i < count; ++i) {
+                Elf64_Sym* symbol = section.GetEntry<Elf64_Sym>(i);
+                auto& info = symbol->st_info;
+
+                if (ELF64_ST_BIND(info) == STB_GNU_UNIQUE) {
+                    verboseOut << "Found GNU unique symbol #" << i << Endl;
+                    info = ELF64_ST_INFO(STB_GLOBAL, ELF64_ST_TYPE(info));
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     bool verbose = false;
+    bool rewrite_unique = false;
 
     using namespace NLastGetopt;
 
@@ -179,14 +229,15 @@ int main(int argc, char* argv[]) {
     opts.AddHelpOption();
 
     opts.AddLongOption('v', "verbose").NoArgument().StoreValue(&verbose, true);
+    opts.AddLongOption('u', "rewrite-gnu-unique", "Change STB_GNU_UNIQUE to STB_GLOBAL").NoArgument().StoreValue(&rewrite_unique, true);
 
     opts.SetFreeArgsMin(1);
     opts.SetFreeArgTitle(0, "<file>", "File");
 
     TOptsParseResult res(&opts, argc, argv);
-    yvector<TString> files = res.GetFreeArgs();
+    TVector<TString> files = res.GetFreeArgs();
 
-    TOutputStream& verboseOut = verbose ? Cout : Cnull;
+    IOutputStream& verboseOut = verbose ? Cout : Cnull;
 
     bool first = true;
     for (auto path : files) {
@@ -203,8 +254,12 @@ int main(int argc, char* argv[]) {
         verboseOut << "Patching " << path << Endl;
 
         try {
-            Patch(path, "libc.so.6", verboseOut);
-            Patch(path, "libm.so.6", verboseOut);
+            if (rewrite_unique) {
+                PatchGnuUnique(path, verboseOut);
+            } else {
+                Patch(path, "libc.so.6", verboseOut);
+                Patch(path, "libm.so.6", verboseOut);
+            }
         } catch (const yexception& e) {
             Cerr << "Patching failed: " << e.what() << Endl;
         }

@@ -8,6 +8,7 @@
 #include <util/generic/maybe.h>
 #include <util/stream/input.h>
 #include <util/stream/output.h>
+#include "file.h"
 #include "getpid.h"
 #include "thread.h"
 #include "mutex.h"
@@ -20,6 +21,20 @@ public:
 #if defined(_win_)
         TString Password;
 #endif
+#if defined(_unix_)
+        /**
+         * Run child process with the user supplementary groups.
+         * If true, the user supplementary groups will be set in the child process upon exec().
+         * If false, the supplementary groups of the parent process will be used.
+         */
+        bool UseUserGroups = false;
+#endif
+    };
+
+    enum EHandleMode {
+        HANDLE_INHERIT,
+        HANDLE_PIPE,
+        HANDLE_STREAM
     };
 
 public:
@@ -33,6 +48,9 @@ public:
         , DetachSession(true)
         , CloseStreams(false)
         , ShouldCloseInput(true)
+        , InputMode(HANDLE_INHERIT)
+        , InheritOutput(false)
+        , InheritError(false)
         , InputStream(nullptr)
         , OutputStream(nullptr)
         , ErrorStream(nullptr)
@@ -47,7 +65,7 @@ public:
     }
 
     /**
-     * @brief clear signal mask from parent process.  If true, child process
+     * @brief clear signal mask from parent process. If true, child process
      * clears the signal mask inherited from the parent process; otherwise
      * child process retains the signal mask of the parent process.
      *
@@ -61,7 +79,7 @@ public:
     }
 
     /**
-     * @brief set close-on-exec mode.  If true, all file descriptors
+     * @brief set close-on-exec mode. If true, all file descriptors
      * from the parent process, except stdin, stdout, stderr, will be closed
      * in the child process upon exec().
      *
@@ -110,8 +128,13 @@ public:
      *
      * @return self
      */
-    inline TShellCommandOptions& SetInputStream(TInputStream* stream) {
+    inline TShellCommandOptions& SetInputStream(IInputStream* stream) {
         InputStream = stream;
+        if (InputStream == nullptr) {
+            InputMode = HANDLE_INHERIT;
+        } else {
+            InputMode = HANDLE_STREAM;
+        }
         return *this;
     }
 
@@ -124,7 +147,7 @@ public:
      *
      * @return self
      */
-    inline TShellCommandOptions& SetOutputStream(TOutputStream* stream) {
+    inline TShellCommandOptions& SetOutputStream(IOutputStream* stream) {
         OutputStream = stream;
         return *this;
     }
@@ -138,7 +161,7 @@ public:
      *
      * @return self
      */
-    inline TShellCommandOptions& SetErrorStream(TOutputStream* stream) {
+    inline TShellCommandOptions& SetErrorStream(IOutputStream* stream) {
         ErrorStream = stream;
         return *this;
     }
@@ -212,6 +235,42 @@ public:
         return *this;
     }
 
+    /**
+     * @brief create a pipe for child input
+     * Write end of the pipe will be accessible via TShellCommand::GetInputHandle
+     *
+     * @return self
+     */
+    inline TShellCommandOptions& PipeInput() {
+        InputMode = HANDLE_PIPE;
+        InputStream = nullptr;
+        return *this;
+    }
+
+    /**
+     * @brief set if child should inherit output handle
+     *
+     * @param inherit if child should inherit output handle
+     *
+     * @return self
+     */
+    inline TShellCommandOptions& SetInheritOutput(bool inherit) {
+        InheritOutput = inherit;
+        return *this;
+    }
+
+    /**
+     * @brief set if child should inherit stderr handle
+     *
+     * @param inherit if child should inherit error output handle
+     *
+     * @return self
+     */
+    inline TShellCommandOptions& SetInheritError(bool inherit) {
+        InheritError = inherit;
+        return *this;
+    }
+
 public:
     bool ClearSignalMask;
     bool CloseAllFdsOnExec;
@@ -222,16 +281,19 @@ public:
     bool DetachSession;
     bool CloseStreams;
     bool ShouldCloseInput;
+    EHandleMode InputMode;
+    bool InheritOutput;
+    bool InheritError;
     /// @todo more options
     // bool SearchPath // search exe name in $PATH
     // bool UnicodeConsole
     // bool EmulateConsole // provide isatty == true
-    /// @todo command's stdin should be exposet as TOutputStream to support dialogue
-    TInputStream* InputStream;
-    TOutputStream* OutputStream;
-    TOutputStream* ErrorStream;
+    /// @todo command's stdin should be exposet as IOutputStream to support dialogue
+    IInputStream* InputStream;
+    IOutputStream* OutputStream;
+    IOutputStream* ErrorStream;
     TUserOptions User;
-    yhash<TString, TString> Environment;
+    THashMap<TString, TString> Environment;
     int Nice;
 
     static const size_t DefaultSyncPollDelay = 1000; // ms
@@ -263,7 +325,7 @@ public:
      * @param options execution options
      * @todo store entire options structure
      */
-    TShellCommand(const TStringBuf cmd, const ylist<TString>& args, const TShellCommandOptions& options = TShellCommandOptions(),
+    TShellCommand(const TStringBuf cmd, const TList<TString>& args, const TShellCommandOptions& options = TShellCommandOptions(),
                   const TString& workdir = TString());
     TShellCommand(const TStringBuf cmd, const TShellCommandOptions& options = TShellCommandOptions(), const TString& workdir = TString());
     ~TShellCommand();
@@ -318,13 +380,34 @@ public:
      */
     TMaybe<int> GetExitCode() const;
 
-/**
+    /**
      * @brief get id of underlying process
      * @note depends on os: pid_t on UNIX, HANDLE on win
      *
      * @return pid or handle
      */
     TProcessId GetPid() const;
+
+    /**
+     * @brief return the file handle that provides input to the child process
+     *
+     * @return input file handle
+     */
+    TFileHandle& GetInputHandle();
+
+    /**
+     * @brief return the file handle that provides output from the child process
+     *
+     * @return output file handle
+     */
+    TFileHandle& GetOutputHandle();
+
+    /**
+     * @brief return the file handle that provides error output from the child process
+     *
+     * @return error file handle
+     */
+    TFileHandle& GetErrorHandle();
 
     /**
      * @brief run the execution
@@ -366,3 +449,6 @@ void ShellQuoteArg(TString& dst, TStringBuf arg);
 
 /// Appends to dst: space, quoted arg
 void ShellQuoteArgSp(TString& dst, TStringBuf arg);
+
+/// Returns true if arg should be quoted
+bool ArgNeedsQuotes(TStringBuf arg) noexcept;

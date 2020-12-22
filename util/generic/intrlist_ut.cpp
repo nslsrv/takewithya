@@ -1,6 +1,6 @@
 #include "intrlist.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/stream/output.h>
 
@@ -354,23 +354,11 @@ public:
         ++Counter_;
     }
 
-    TSelfCountingInt(const TSelfCountingInt& rhs) noexcept
-        : Counter_(rhs.Counter_)
-        , Value_(rhs.Value_)
-    {
-        ++Counter_;
-    }
-
     TSelfCountingInt(TSelfCountingInt&& rhs) noexcept
         : Counter_(rhs.Counter_)
         , Value_(rhs.Value_)
     {
         rhs.Value_ = 0xDEAD;
-    }
-
-    TSelfCountingInt& operator=(const TSelfCountingInt& rhs) noexcept {
-        Value_ = rhs.Value_;
-        return *this;
     }
 
     TSelfCountingInt& operator=(TSelfCountingInt&& rhs) noexcept {
@@ -403,10 +391,10 @@ struct TSelfCountingIntDelete {
 };
 
 void TListTest::TestListWithAutoDelete() {
-    using TList = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
+    using TListType = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
     int counter{0};
     {
-        TList lst;
+        TListType lst;
         UNIT_ASSERT(lst.Empty());
         lst.PushFront(new TSelfCountingInt(counter, 2));
         UNIT_ASSERT_EQUAL(lst.Size(), 1);
@@ -421,17 +409,17 @@ void TListTest::TestListWithAutoDelete() {
 }
 
 void TListTest::TestListWithAutoDeleteMoveCtor() {
-    using TList = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
+    using TListType = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
     int counter{0};
     {
-        TList lst;
+        TListType lst;
         lst.PushFront(new TSelfCountingInt(counter, 2));
         lst.PushFront(new TSelfCountingInt(counter, 1));
         UNIT_ASSERT_EQUAL(lst.Size(), 2);
         UNIT_ASSERT_EQUAL(counter, 2);
         CheckList(lst);
 
-        TList nextList(std::move(lst));
+        TListType nextList(std::move(lst));
         UNIT_ASSERT_EQUAL(nextList.Size(), 2);
         CheckList(nextList);
         UNIT_ASSERT_EQUAL(counter, 2);
@@ -441,17 +429,17 @@ void TListTest::TestListWithAutoDeleteMoveCtor() {
 }
 
 void TListTest::TestListWithAutoDeleteMoveOpEq() {
-    using TList = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
+    using TListType = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
     int counter{0};
     {
-        TList lst;
+        TListType lst;
         lst.PushFront(new TSelfCountingInt(counter, 2));
         lst.PushFront(new TSelfCountingInt(counter, 1));
         UNIT_ASSERT_EQUAL(lst.Size(), 2);
         UNIT_ASSERT_EQUAL(counter, 2);
         CheckList(lst);
 
-        TList nextList;
+        TListType nextList;
         UNIT_ASSERT(nextList.Empty());
         nextList = std::move(lst);
         UNIT_ASSERT_EQUAL(nextList.Size(), 2);
@@ -463,10 +451,10 @@ void TListTest::TestListWithAutoDeleteMoveOpEq() {
 }
 
 void TListTest::TestListWithAutoDeleteClear() {
-    using TList = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
+    using TListType = TIntrusiveListWithAutoDelete<TSelfCountingInt, TSelfCountingIntDelete>;
     int counter{0};
     {
-        TList lst;
+        TListType lst;
         UNIT_ASSERT(lst.Empty());
         lst.PushFront(new TSelfCountingInt(counter, 2));
         UNIT_ASSERT_EQUAL(lst.Size(), 1);

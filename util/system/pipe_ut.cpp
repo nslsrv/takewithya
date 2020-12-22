@@ -1,9 +1,9 @@
 #include "pipe.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TPipeTest) {
-    SIMPLE_UNIT_TEST(TestPipe) {
+Y_UNIT_TEST_SUITE(TPipeTest) {
+    Y_UNIT_TEST(TestPipe) {
         TPipe r;
         TPipe w;
         TPipe::Pipe(r, w);

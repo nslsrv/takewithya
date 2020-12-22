@@ -1,6 +1,8 @@
 #include "type.h"
 #include "ascii.h"
 
+#include <array>
+
 bool IsSpace(const char* s, size_t len) noexcept {
     if (len == 0)
         return false;
@@ -10,8 +12,8 @@ bool IsSpace(const char* s, size_t len) noexcept {
     return true;
 }
 
-template <typename TStroka>
-static bool IsNumberT(const TStroka& s) noexcept {
+template <typename TStringType>
+static bool IsNumberT(const TStringType& s) noexcept {
     if (s.empty()) {
         return false;
     }
@@ -32,8 +34,8 @@ bool IsNumber(const TWtringBuf s) noexcept {
     return IsNumberT(s);
 }
 
-template <typename TStroka>
-static bool IsHexNumberT(const TStroka& s) noexcept {
+template <typename TStringType>
+static bool IsHexNumberT(const TStringType& s) noexcept {
     if (s.empty()) {
         return false;
     }
@@ -55,16 +57,38 @@ bool IsHexNumber(const TWtringBuf s) noexcept {
     return IsHexNumberT(s);
 }
 
-bool IsTrue(const TStringBuf v) {
-    if (!v)
+namespace {
+    template <size_t N>
+    bool IsCaseInsensitiveAnyOf(TStringBuf str, const std::array<TStringBuf, N>& options) {
+        for (auto option : options) {
+            if (str.size() == option.size() && ::strnicmp(str.data(), option.data(), str.size()) == 0) {
+                return true;
+            }
+        }
         return false;
+    }
+} //anonymous namespace
 
-    return !strnicmp(~v, "da", v.length()) || !strnicmp(~v, "yes", v.length()) || !strnicmp(~v, "on", v.length()) || !strnicmp(~v, "1", v.length()) || !strnicmp(~v, "true", v.length());
+bool IsTrue(const TStringBuf v) noexcept {
+    static constexpr std::array<TStringBuf, 7> trueOptions{
+        "true",
+        "t",
+        "yes",
+        "y",
+        "on",
+        "1",
+        "da"};
+    return IsCaseInsensitiveAnyOf(v, trueOptions);
 }
 
-bool IsFalse(const TStringBuf v) {
-    if (!v)
-        return false;
-
-    return !strnicmp(~v, "net", v.length()) || !strnicmp(~v, "no", v.length()) || !strnicmp(~v, "off", v.length()) || !strnicmp(~v, "0", v.length()) || !strnicmp(~v, "false", v.length());
+bool IsFalse(const TStringBuf v) noexcept {
+    static constexpr std::array<TStringBuf, 7> falseOptions{
+        "false",
+        "f",
+        "no",
+        "n",
+        "off",
+        "0",
+        "net"};
+    return IsCaseInsensitiveAnyOf(v, falseOptions);
 }

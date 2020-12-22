@@ -1,4 +1,4 @@
-#include <library/testing/benchmark/bench.h>
+#include <library/cpp/testing/benchmark/bench.h>
 
 #include <util/generic/singleton.h>
 #include <util/generic/vector.h>
@@ -34,7 +34,7 @@ namespace {
 
     template <typename T, size_t N>
     struct TExamplesHolder {
-        yvector<TExample<T>> Examples;
+        TVector<TExample<T>> Examples;
 
         TExamplesHolder()
             : Examples(N)
@@ -49,7 +49,7 @@ namespace {
 
     template <typename T, size_t N>
     struct TNearZeroExamplesHolder {
-        yvector<TExample<T>> Examples;
+        TVector<TExample<T>> Examples;
 
         TNearZeroExamplesHolder()
             : Examples(N)

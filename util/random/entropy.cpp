@@ -3,6 +3,7 @@
 #include "entropy.h"
 #include "mersenne.h"
 #include "shuffle.h"
+#include "init_atfork.h"
 
 #include <util/stream/output.h>
 #include <util/stream/mem.h>
@@ -14,6 +15,11 @@
 #include <util/system/execpath.h>
 #include <util/system/datetime.h>
 #include <util/system/hostname.h>
+#include <util/system/getpid.h>
+#include <util/system/mem_info.h>
+#include <util/system/rusage.h>
+#include <util/system/user.h>
+#include <util/system/cpu_id.h>
 #include <util/system/unaligned_mem.h>
 #include <util/generic/buffer.h>
 #include <util/generic/singleton.h>
@@ -32,10 +38,12 @@ namespace {
                 TBufferOutput buf(*this);
                 TZLibCompress out(&buf);
 
+                Save(&out, GetPID());
                 Save(&out, GetCycleCount());
                 Save(&out, MicroSeconds());
                 Save(&out, TThread::CurrentThreadId());
                 Save(&out, NSystemInfo::CachedNumberOfCpus());
+                Save(&out, NSystemInfo::TotalMemorySize());
                 Save(&out, HostName());
 
                 try {
@@ -45,12 +53,39 @@ namespace {
                 }
 
                 Save(&out, (size_t)Data());
+                Save(&out, (size_t)&buf);
 
-                double la[3];
+                {
+                    double la[3];
 
-                NSystemInfo::LoadAverage(la, Y_ARRAY_SIZE(la));
+                    NSystemInfo::LoadAverage(la, Y_ARRAY_SIZE(la));
 
-                out.Write(la, sizeof(la));
+                    out.Write(la, sizeof(la));
+                }
+
+                {
+                    auto mi = NMemInfo::GetMemInfo();
+
+                    out.Write(&mi, sizeof(mi));
+                }
+
+                {
+                    auto ru = TRusage::Get();
+
+                    out.Write(&ru, sizeof(ru));
+                }
+
+                try {
+                    Save(&out, GetUsername());
+                } catch (...) {
+                    // May fail e.g. when sssd_be crashes.
+                }
+
+                {
+                    ui32 store[12];
+
+                    out << TStringBuf(CpuBrand(store));
+                }
             }
 
             {
@@ -65,7 +100,7 @@ namespace {
     };
 
     //not thread-safe
-    class TMersenneInput: public TInputStream {
+    class TMersenneInput: public IInputStream {
         using TKey = ui64;
         using TRnd = TMersenne<TKey>;
 
@@ -97,7 +132,7 @@ namespace {
         TRnd Rnd_;
     };
 
-    class TEntropyPoolStream: public TInputStream {
+    class TEntropyPoolStream: public IInputStream {
     public:
         inline TEntropyPoolStream(const TBuffer& buffer)
             : Mi_(buffer)
@@ -117,13 +152,13 @@ namespace {
         TBufferedInput Bi_;
     };
 
-    struct TSeedStream: public TInputStream {
+    struct TSeedStream: public IInputStream {
         size_t DoRead(void* inbuf, size_t len) override {
             char* buf = (char*)inbuf;
 
 #define DO_STEP(type)                              \
     while (len >= sizeof(type)) {                  \
-        WriteUnaligned(buf, RandomNumber<type>()); \
+        WriteUnaligned<type>(buf, RandomNumber<type>()); \
         buf += sizeof(type);                       \
         len -= sizeof(type);                       \
     }
@@ -140,43 +175,45 @@ namespace {
     };
 
     struct TDefaultTraits {
-        const THostEntropy HE;
-        TEntropyPoolStream EP;
+        THolder<TEntropyPoolStream> EP;
         TSeedStream SS;
 
-        inline TDefaultTraits()
-            : EP(HE)
-        {
+        inline TDefaultTraits() {
+            Reset();
         }
 
-        inline const TBuffer& HostEntropy() const noexcept {
-            return HE;
+        inline IInputStream& EntropyPool() noexcept {
+            return *EP;
         }
 
-        inline TInputStream& EntropyPool() noexcept {
-            return EP;
-        }
-
-        inline TInputStream& Seed() noexcept {
+        inline IInputStream& Seed() noexcept {
             return SS;
         }
 
+        inline void Reset() noexcept {
+            EP.Reset(new TEntropyPoolStream(THostEntropy()));
+        }
+
         static inline TDefaultTraits& Instance() {
-            return *SingletonWithPriority<TDefaultTraits, 0>();
+            auto res = SingletonWithPriority<TDefaultTraits, 0>();
+
+            RNGInitAtForkHandlers();
+
+            return *res;
         }
     };
 
     using TRandomTraits = TDefaultTraits;
 }
 
-TInputStream& EntropyPool() {
+IInputStream& EntropyPool() {
     return TRandomTraits::Instance().EntropyPool();
 }
 
-TInputStream& Seed() {
+IInputStream& Seed() {
     return TRandomTraits::Instance().Seed();
 }
 
-const TBuffer& HostEntropy() {
-    return TRandomTraits::Instance().HostEntropy();
+void ResetEntropyPool() {
+    TRandomTraits::Instance().Reset();
 }

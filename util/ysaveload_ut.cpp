@@ -1,6 +1,6 @@
 #include "ysaveload.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/memory/pool.h>
 #include <util/stream/buffer.h>
@@ -15,6 +15,7 @@
 #include <util/generic/buffer.h>
 #include <util/generic/hash_set.h>
 #include <util/generic/maybe.h>
+#include <util/generic/variant.h>
 
 static inline char* AllocateFromPool(TMemoryPool& pool, size_t len) {
     return (char*)pool.Allocate(len);
@@ -26,14 +27,16 @@ class TSaveLoadTest: public TTestBase {
     UNIT_TEST(TestNewStyle)
     UNIT_TEST(TestNewNewStyle)
     UNIT_TEST(TestList)
+    UNIT_TEST(TestTuple)
+    UNIT_TEST(TestVariant)
     UNIT_TEST_SUITE_END();
 
     struct TSaveHelper {
-        inline void Save(TOutputStream* o) const {
+        inline void Save(IOutputStream* o) const {
             o->Write("qwerty", 7);
         }
 
-        inline void Load(TInputStream* i) {
+        inline void Load(IInputStream* i) {
             char buf[7];
 
             UNIT_ASSERT_EQUAL(i->Load(buf, 7), 7);
@@ -114,7 +117,7 @@ private:
         }
 
         {
-            yvector<ui16> vec;
+            TVector<ui16> vec;
 
             vec.push_back((ui16)1);
             vec.push_back((ui16)2);
@@ -124,7 +127,7 @@ private:
         }
 
         {
-            ymap<ui16, ui32> map;
+            TMap<ui16, ui32> map;
 
             map[(ui16)1] = 2;
             map[(ui16)2] = 3;
@@ -134,7 +137,7 @@ private:
         }
 
         {
-            ymultimap<ui16, ui32> multimap;
+            TMultiMap<ui16, ui32> multimap;
 
             multimap.emplace((ui16)1, 2);
             multimap.emplace((ui16)2, 3);
@@ -165,7 +168,7 @@ private:
         }
 
         {
-            yvector<const char*> vec;
+            TVector<const char*> vec;
 
             vec.push_back("1");
             vec.push_back("123");
@@ -175,7 +178,7 @@ private:
         }
 
         {
-            ydeque<ui16> deq;
+            TDeque<ui16> deq;
 
             deq.push_back(1);
             deq.push_back(2);
@@ -206,7 +209,7 @@ private:
         }
 
         {
-            yhash_mm<TString, int> mm;
+            THashMultiMap<TString, int> mm;
 
             mm.insert({"one", 1});
             mm.insert({"two", 2});
@@ -245,17 +248,17 @@ private:
         }
 
         {
-            yvector<ui16> vec;
+            TVector<ui16> vec;
 
             Load(&S_, vec);
-            UNIT_ASSERT_EQUAL(+vec, 3);
+            UNIT_ASSERT_EQUAL(vec.size(), 3);
             UNIT_ASSERT_EQUAL(vec[0], 1);
             UNIT_ASSERT_EQUAL(vec[1], 2);
             UNIT_ASSERT_EQUAL(vec[2], 4);
         }
 
         {
-            ymap<ui16, ui32> map;
+            TMap<ui16, ui32> map;
 
             Load(&S_, map);
             UNIT_ASSERT_EQUAL(map.size(), 3);
@@ -265,23 +268,23 @@ private:
         }
 
         {
-            ymultimap<ui16, ui32> multimap;
+            TMultiMap<ui16, ui32> multimap;
 
             Load(&S_, multimap);
             UNIT_ASSERT_EQUAL(multimap.size(), 5);
             UNIT_ASSERT_EQUAL(multimap.find((ui16)1)->second, 2);
             UNIT_ASSERT_EQUAL(multimap.find((ui16)3)->second, 6);
 
-            yhash_set<ui32> values;
+            THashSet<ui32> values;
             auto range = multimap.equal_range((ui16)2);
             for (auto i = range.first; i != range.second; ++i) {
                 values.insert(i->second);
             }
 
             UNIT_ASSERT_EQUAL(values.size(), 3);
-            UNIT_ASSERT_EQUAL(values.has(3), true);
-            UNIT_ASSERT_EQUAL(values.has(4), true);
-            UNIT_ASSERT_EQUAL(values.has(5), true);
+            UNIT_ASSERT_EQUAL(values.contains(3), true);
+            UNIT_ASSERT_EQUAL(values.contains(4), true);
+            UNIT_ASSERT_EQUAL(values.contains(5), true);
         }
 
         {
@@ -301,28 +304,28 @@ private:
             TBuffer buf;
 
             Load(&S_, buf);
-            UNIT_ASSERT_EQUAL(+buf, 4);
-            UNIT_ASSERT_EQUAL(memcmp(~buf, "asdf", 4), 0);
+            UNIT_ASSERT_EQUAL(buf.size(), 4);
+            UNIT_ASSERT_EQUAL(memcmp(buf.data(), "asdf", 4), 0);
         }
 
         {
-            yvector<const char*> vec;
+            TVector<const char*> vec;
             TMemoryPool pool(1024);
 
             Load(&S_, vec, pool);
 
-            UNIT_ASSERT_EQUAL(+vec, 3);
+            UNIT_ASSERT_EQUAL(vec.size(), 3);
             UNIT_ASSERT_EQUAL(vec[0], TString("1"));
             UNIT_ASSERT_EQUAL(vec[1], TString("123"));
             UNIT_ASSERT_EQUAL(vec[2], TString("4567"));
         }
 
         {
-            ydeque<ui16> deq;
+            TDeque<ui16> deq;
 
             Load(&S_, deq);
 
-            UNIT_ASSERT_EQUAL(+deq, 4);
+            UNIT_ASSERT_EQUAL(deq.size(), 4);
             UNIT_ASSERT_EQUAL(deq[0], 1);
             UNIT_ASSERT_EQUAL(deq[1], 2);
             UNIT_ASSERT_EQUAL(deq[2], 4);
@@ -356,7 +359,7 @@ private:
         }
 
         {
-            yhash_mm<TString, int> mm;
+            THashMultiMap<TString, int> mm;
 
             Load(&S_, mm);
 
@@ -374,7 +377,7 @@ private:
     void TestList() {
         TBufferStream s;
 
-        ylist<int> list = {0, 1, 10};
+        TList<int> list = {0, 1, 10};
         Save(&s, list);
 
         list.clear();
@@ -384,6 +387,46 @@ private:
         UNIT_ASSERT_VALUES_EQUAL(*std::next(list.begin(), 0), 0);
         UNIT_ASSERT_VALUES_EQUAL(*std::next(list.begin(), 1), 1);
         UNIT_ASSERT_VALUES_EQUAL(*std::next(list.begin(), 2), 10);
+    }
+
+    void TestTuple() {
+        TBufferStream s;
+
+        using TTuple = std::tuple<int, TString, unsigned int>;
+        const TTuple toSave{-10, "qwerty", 15};
+        Save(&s, toSave);
+
+        TTuple toLoad;
+        Load(&s, toLoad);
+
+        UNIT_ASSERT_VALUES_EQUAL(std::get<0>(toLoad), std::get<0>(toSave));
+        UNIT_ASSERT_VALUES_EQUAL(std::get<1>(toLoad), std::get<1>(toSave));
+        UNIT_ASSERT_VALUES_EQUAL(std::get<2>(toLoad), std::get<2>(toSave));
+    }
+
+    template <class TVariant, class T>
+    void TestVariantImpl(TVariant& v, const T& expected) {
+        v = expected;
+
+        TBufferStream s;
+        ::Save(&s, v);
+        ::Load(&s, v);
+        UNIT_ASSERT_VALUES_EQUAL(Get<T>(v), expected);
+    }
+
+    void TestVariant() {
+        TVariant<int, bool, TString, TVector<char>> v(1);
+        TestVariantImpl(v, 42);
+        TestVariantImpl(v, true);
+        TestVariantImpl(v, TString("foo"));
+        TestVariantImpl(v, TVector<char>{'b', 'a', 'r'});
+
+        v = TString("baz");
+        TBufferStream s;
+        ::Save(&s, v);
+
+        TVariant<char, bool> v2 = false;
+        UNIT_ASSERT_EXCEPTION(::Load(&s, v2), TLoadEOF);
     }
 };
 

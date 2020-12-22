@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -43,6 +44,7 @@
 #include <util/generic/hash_set.h>
 
 #include <stddef.h>
+#include <sys/uio.h>
 
 using namespace NAddr;
 
@@ -257,6 +259,7 @@ bool GetRemoteAddr(SOCKET Socket, char* str, socklen_t size) {
 
         return true;
     } catch (...) {
+        // ¯\_(ツ)_/¯
     }
 
     return false;
@@ -478,21 +481,56 @@ void SetTcpFastOpen(SOCKET s, int qlen) {
 #endif
 }
 
+static bool IsBlocked(int lasterr) noexcept {
+    return lasterr == EAGAIN || lasterr == EWOULDBLOCK;
+}
+
+struct TUnblockingGuard {
+    SOCKET S_;
+
+    TUnblockingGuard(SOCKET s)
+        : S_(s)
+    {
+        SetNonBlock(S_, true);
+    }
+
+    ~TUnblockingGuard() {
+        SetNonBlock(S_, false);
+    }
+};
+
+static int MsgPeek(SOCKET s) {
+    int flags = MSG_PEEK;
+
 #if defined(_win_)
-size_t writev(SOCKET sock, const struct iovec* iov, int iovcnt) {
-    WSABUF* wsabuf = (WSABUF*)alloca(iovcnt * sizeof(WSABUF));
-    memset(wsabuf, 0, sizeof(iovcnt * sizeof(WSABUF)));
-    for (int i = 0; i < iovcnt; ++i) {
-        wsabuf[i].buf = iov[i].iov_base;
-        wsabuf[i].len = (u_long)iov[i].iov_len;
-    }
-    DWORD numberOfBytesSent;
-    int res = WSASend(sock, wsabuf, iovcnt, &numberOfBytesSent, 0, nullptr, nullptr);
-    if (res == SOCKET_ERROR) {
-        errno = EIO;
-        return size_t(-1);
-    }
-    return numberOfBytesSent;
+    TUnblockingGuard unblocker(s);
+    Y_UNUSED(unblocker);
+#else
+    flags |= MSG_DONTWAIT;
+#endif
+
+    char c;
+    return recv(s, &c, 1, flags);
+}
+
+bool IsNotSocketClosedByOtherSide(SOCKET s) {
+    const int r = MsgPeek(s);
+    return r > 0 || (r == -1 && IsBlocked(LastSystemError()));
+}
+
+#if defined(_win_)
+static ssize_t DoSendMsg(SOCKET sock, const struct iovec* iov, int iovcnt) {
+    return writev(sock, iov, iovcnt);
+}
+#else
+static ssize_t DoSendMsg(SOCKET sock, const struct iovec* iov, int iovcnt) {
+    struct msghdr message;
+
+    Zero(message);
+    message.msg_iov = const_cast<struct iovec*>(iov);
+    message.msg_iovlen = iovcnt;
+
+    return sendmsg(sock, &message, MSG_NOSIGNAL);
 }
 #endif
 
@@ -544,13 +582,17 @@ public:
         return Ops_->SendV(Fd_, parts, count);
     }
 
+    inline void Close() {
+        Fd_.Close();
+    }
+
 private:
     TSocketHolder Fd_;
     TOps* Ops_;
 };
 
 template <>
-void Out<const struct addrinfo*>(TOutputStream& os, const struct addrinfo* ai) {
+void Out<const struct addrinfo*>(IOutputStream& os, const struct addrinfo* ai) {
     if (ai->ai_flags & AI_CANONNAME)
         os << "`" << ai->ai_canonname << "' ";
 
@@ -565,12 +607,12 @@ void Out<const struct addrinfo*>(TOutputStream& os, const struct addrinfo* ai) {
 }
 
 template <>
-void Out<struct addrinfo*>(TOutputStream& os, struct addrinfo* ai) {
+void Out<struct addrinfo*>(IOutputStream& os, struct addrinfo* ai) {
     Out<const struct addrinfo*>(os, static_cast<const struct addrinfo*>(ai));
 }
 
 template <>
-void Out<TNetworkAddress>(TOutputStream& os, const TNetworkAddress& addr) {
+void Out<TNetworkAddress>(IOutputStream& os, const TNetworkAddress& addr) {
     os << &*addr.Begin();
 }
 
@@ -631,7 +673,7 @@ static inline SOCKET DoConnectImpl(const struct addrinfo* res, const TInstant& d
         return s.Release();
     }
 
-    ythrow yexception() << "shit happen";
+    ythrow yexception() << "something went wrong: nullptr at addrinfo";
 }
 
 static inline SOCKET DoConnect(const struct addrinfo* res, const TInstant& deadLine) {
@@ -645,7 +687,7 @@ static inline SOCKET DoConnect(const struct addrinfo* res, const TInstant& deadL
 static inline ssize_t DoSendV(SOCKET fd, const struct iovec* iov, size_t count) {
     ssize_t ret = -1;
     do {
-        ret = (ssize_t)writev(fd, iov, (int)count);
+        ret = DoSendMsg(fd, iov, (int)count);
     } while (ret == -1 && errno == EINTR);
 
     if (ret < 0) {
@@ -696,7 +738,7 @@ public:
     ssize_t Send(SOCKET fd, const void* data, size_t len) override {
         ssize_t ret = -1;
         do {
-            ret = send(fd, (const char*)data, (int)len, 0);
+            ret = send(fd, (const char*)data, (int)len, MSG_NOSIGNAL);
         } while (ret == -1 && errno == EINTR);
 
         if (ret < 0) {
@@ -817,6 +859,10 @@ ssize_t TSocket::SendV(const TPart* parts, size_t count) {
     return Impl_->SendV(parts, count);
 }
 
+void TSocket::Close() {
+    Impl_->Close();
+}
+
 TSocketInput::TSocketInput(const TSocket& s) noexcept
     : S_(s)
 {
@@ -843,18 +889,21 @@ TSocketOutput::~TSocketOutput() {
     try {
         Finish();
     } catch (...) {
+        // ¯\_(ツ)_/¯
     }
 }
 
 void TSocketOutput::DoWrite(const void* buf, size_t len) {
+    size_t send = 0;
     while (len) {
         const ssize_t ret = S_.Send(buf, len);
 
         if (ret < 0) {
-            ythrow TSystemError(-(int)ret) << "can not write to socket output stream";
+            ythrow TSystemError(-(int)ret) << "can not write to socket output stream; " << send << " bytes already send";
         }
         buf = (const char*)buf + ret;
         len -= ret;
+        send += ret;
     }
 }
 
@@ -873,7 +922,7 @@ void TSocketOutput::DoWriteV(const TPart* parts, size_t count) {
 namespace {
     //https://bugzilla.mozilla.org/attachment.cgi?id=503263&action=diff
 
-    struct TLocalNames: public yhash_set<TStringBuf> {
+    struct TLocalNames: public THashSet<TStringBuf> {
         inline TLocalNames() {
             insert("localhost");
             insert("localhost.localdomain");
@@ -882,23 +931,52 @@ namespace {
             insert("::1");
         }
 
-        inline bool IsLocalName(TStringBuf name) const noexcept {
+        inline bool IsLocalName(const char* name) const noexcept {
             struct sockaddr_in sa;
             memset(&sa, 0, sizeof(sa));
 
-            if (inet_pton(AF_INET, name.c_str(), &(sa.sin_addr)) == 1) {
+            if (inet_pton(AF_INET, name, &(sa.sin_addr)) == 1) {
                 return (InetToHost(sa.sin_addr.s_addr) >> 24) == 127;
             }
 
-            return find(name) != end();
+            return contains(name);
         }
     };
 }
 
 class TNetworkAddress::TImpl: public TAtomicRefCount<TImpl> {
+private:
+    class TAddrInfoDeleter {
+    public:
+        TAddrInfoDeleter(bool useFreeAddrInfo = true)
+            : UseFreeAddrInfo_(useFreeAddrInfo)
+        {}
+
+        void operator()(struct addrinfo* ai) noexcept {
+            if (!UseFreeAddrInfo_ && ai != NULL) {
+                if (ai->ai_addr != NULL) {
+                    delete ai->ai_addr;
+                }
+
+                struct addrinfo *p;
+                while (ai != NULL) {
+                    p = ai;
+                    ai = ai->ai_next;
+                    delete p->ai_canonname;
+                    delete p;
+                }
+            } else if (ai != NULL) {
+                freeaddrinfo(ai);
+            }
+        }
+
+    private:
+        bool UseFreeAddrInfo_ = true;
+    };
+
 public:
     inline TImpl(const char* host, ui16 port, int flags)
-        : Info_(nullptr)
+        : Info_(nullptr, TAddrInfoDeleter{})
     {
         const TString port_st(ToString(port));
         struct addrinfo hints;
@@ -917,41 +995,60 @@ public:
             }
         }
 
-        const int error = getaddrinfo(host, ~port_st, &hints, &Info_);
+        struct addrinfo* pai = NULL;
+        const int error = getaddrinfo(host, port_st.data(), &hints, &pai);
 
         if (error) {
-            Clear();
+            TAddrInfoDeleter()(pai);
             ythrow TNetworkResolutionError(error) << ": can not resolve " << host << ":" << port;
         }
+
+        Info_.reset(pai);
     }
 
-    inline ~TImpl() {
-        Clear();
+    inline TImpl(const char* path, int flags)
+        : Info_(nullptr, TAddrInfoDeleter{/* useFreeAddrInfo = */ false})
+    {
+        THolder<struct sockaddr_un> sockAddr = MakeHolder<struct sockaddr_un>();
+
+        Y_ENSURE(strlen(path) < sizeof(sockAddr->sun_path), "Unix socket path more than " << sizeof(sockAddr->sun_path));
+        sockAddr->sun_family = AF_UNIX;
+        strcpy(sockAddr->sun_path, path);
+
+        TAddrInfoPtr hints(new struct addrinfo, TAddrInfoDeleter{/* useFreeAddrInfo = */ false});
+        memset(hints.get(), 0, sizeof(*hints));
+
+        hints->ai_flags = flags;
+        hints->ai_family = AF_UNIX;
+        hints->ai_socktype = SOCK_STREAM;
+        hints->ai_addrlen = sizeof(*sockAddr);
+        hints->ai_addr = (struct sockaddr*)sockAddr.Release();
+
+        Info_.reset(hints.release());
     }
 
     inline struct addrinfo* Info() const noexcept {
-        return Info_;
+        return Info_.get();
     }
 
 private:
-    void Clear() {
-        if (Info_) {
-            freeaddrinfo(Info_);
-            Info_ = nullptr;
-        }
-    }
+    using TAddrInfoPtr = std::unique_ptr<struct addrinfo, TAddrInfoDeleter>;
 
-private:
-    struct addrinfo* Info_;
+    TAddrInfoPtr Info_;
 };
 
+TNetworkAddress::TNetworkAddress(const TUnixSocketPath& unixSocketPath, int flags)
+    : Impl_(new TImpl(unixSocketPath.Path.data(), flags))
+{
+}
+
 TNetworkAddress::TNetworkAddress(const TString& host, ui16 port, int flags)
-    : Impl_(new TImpl(~host, port, flags))
+    : Impl_(new TImpl(host.data(), port, flags))
 {
 }
 
 TNetworkAddress::TNetworkAddress(const TString& host, ui16 port)
-    : Impl_(new TImpl(~host, port, 0))
+    : Impl_(new TImpl(host.data(), port, 0))
 {
 }
 
@@ -973,7 +1070,15 @@ TNetworkResolutionError::TNetworkResolutionError(int error) {
 #else
     errMsg = gai_strerror(error);
 #endif
-    (*this) << errMsg;
+    (*this) << errMsg << "(" << error;
+
+#if defined(_unix_)
+    if (error == EAI_SYSTEM) {
+        (*this) << "; errno=" << LastSystemError();
+    }
+#endif
+
+    (*this) << "): ";
 }
 
 #if defined(_unix_)
@@ -1122,4 +1227,44 @@ void ShutDown(SOCKET s, int mode) {
     if (shutdown(s, mode)) {
         ythrow TSystemError() << "shutdown socket error";
     }
+}
+
+extern "C" bool IsReusePortAvailable() {
+// SO_REUSEPORT is always defined for linux builds, see SetReusePort() implementation above
+#if defined(SO_REUSEPORT)
+
+    class TCtx {
+    public:
+        TCtx() {
+            TSocketHolder sock(::socket(AF_INET, SOCK_STREAM, 0));
+            const int e1 = errno;
+            if (sock == INVALID_SOCKET) {
+                ythrow TSystemError(e1) << "Cannot create AF_INET socket";
+            }
+            int val;
+            const int ret = GetSockOpt(sock, SOL_SOCKET, SO_REUSEPORT, val);
+            const int e2 = errno;
+            if (ret == 0) {
+                Flag_ = true;
+            } else {
+                if (e2 == ENOPROTOOPT) {
+                    Flag_ = false;
+                } else {
+                    ythrow TSystemError(e2) << "Unexpected error in getsockopt";
+                }
+            }
+        }
+
+        static inline const TCtx* Instance() noexcept {
+            return Singleton<TCtx>();
+        }
+
+    public:
+        bool Flag_;
+    };
+
+    return TCtx::Instance()->Flag_;
+#else
+    return false;
+#endif
 }

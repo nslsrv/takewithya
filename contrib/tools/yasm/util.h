@@ -64,6 +64,10 @@
 #include <strings.h>
 #endif
 
+#if __linux__ && __x86_64__
+__asm__(".symver memcpy,memcpy@GLIBC_2.2.5");
+#endif
+
 #include <libyasm-stdint.h>
 #include <libyasm/coretype.h>
 
@@ -155,5 +159,7 @@
  */
 #define NELEMS(array)   (sizeof(array) / sizeof(array[0]))
 #endif
+
+char * yasm_replace_path(const char* replace_map[], int size, const char* str, int pref_len);
 
 #endif

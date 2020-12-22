@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ylimits.h"
-#include "typetraits.h"
+#include "typelist.h"
 
 #include <util/system/compiler.h>
 #include <util/system/yassert.h>
@@ -197,18 +197,18 @@ namespace NBitOps {
         }
 #endif
 #endif
-    } // NPrivate
-} // NBitOps
+    }
+}
 
 /**
- * Compute the next highest power of 2 of integer paramter `t`.
+ * Computes the next power of 2 higher or equal to the integer parameter `t`.
  * If `t` is a power of 2 will return `t`.
  * Result is undefined for `t == 0`.
  */
 template <typename T>
 static inline T FastClp2(T t) noexcept {
     Y_ASSERT(t > 0);
-    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::TResult;
+    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::type;
     return 1 + ::NBitOps::NPrivate::TClp2Helper<sizeof(TCvt) * 4, T>::Calc(static_cast<TCvt>(t));
 }
 
@@ -226,7 +226,7 @@ static inline constexpr bool IsPowerOf2(T v) noexcept {
 template <typename T>
 static inline unsigned GetValueBitCount(T value) noexcept {
     Y_ASSERT(value > 0);
-    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::TResult;
+    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::type;
     return ::NBitOps::NPrivate::GetValueBitCountImpl(static_cast<TCvt>(value));
 }
 
@@ -236,7 +236,7 @@ static inline unsigned GetValueBitCount(T value) noexcept {
 template <typename T>
 static inline unsigned CountTrailingZeroBits(T value) noexcept {
     Y_ASSERT(value > 0);
-    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::TResult;
+    using TCvt = typename ::TUnsignedInts::template TSelectBy<TSizeOfPredicate<sizeof(T)>::template TResult>::type;
     return ::NBitOps::NPrivate::CountTrailingZeroBitsImpl(static_cast<TCvt>(value));
 }
 
@@ -377,7 +377,7 @@ Y_FORCE_INLINE ui64 ReverseBits(ui64 t) {
  */
 template <typename T>
 Y_FORCE_INLINE T ReverseBits(T v, ui64 bits) {
-    return T(v & ::InverseMaskLowerBits(bits)) | T(ReverseBits(T(v & ::MaskLowerBits(bits)))) >> ((ui64{sizeof(T)} << ui64{3}) - bits);
+    return bits ? (T(v & ::InverseMaskLowerBits(bits)) | T(ReverseBits(T(v & ::MaskLowerBits(bits)))) >> ((ui64{sizeof(T)} << ui64{3}) - bits)) : v;
 }
 
 /*
@@ -423,4 +423,37 @@ constexpr T RotateBitsRightCT(T value, const ui8 shift) noexcept {
 
     // do trick with mask to avoid undefined behaviour
     return (value >> shift) | (value << ((-shift) & (sizeof(T) * 8 - 1)));
+}
+
+/* Remain `size` bits to current `offset` of `value`
+   size, offset are less than number of bits in size_type
+ */
+template <size_t Offset, size_t Size, class T>
+Y_FORCE_INLINE T SelectBits(T value) {
+    static_assert(Size < sizeof(T) * 8, "violated: Size < sizeof(T) * 8");
+    static_assert(Offset < sizeof(T) * 8, "violated: Offset < sizeof(T) * 8");
+    T id = 1;
+    return (value >> Offset) & ((id << Size) - id);
+}
+
+/* Set `size` bits of `bits` to current offset of `value`. Requires that bits <= (1 << size) - 1
+   size, offset are less than number of bits in size_type
+ */
+template <size_t Offset, size_t Size, class T>
+void SetBits(T& value, T bits) {
+    static_assert(Size < sizeof(T) * 8, "violated: Size < sizeof(T) * 8");
+    static_assert(Offset < sizeof(T) * 8, "violated: Offset < sizeof(T) * 8");
+    T id = 1;
+    T maxValue = ((id << Size) - id);
+    Y_ASSERT(bits <= maxValue);
+    value &= ~(maxValue << Offset);
+    value |= bits << Offset;
+}
+
+inline constexpr ui64 NthBit64(int bit) {
+    return ui64(1) << bit;
+}
+
+inline constexpr ui64 Mask64(int bits) {
+    return NthBit64(bits) - 1;
 }

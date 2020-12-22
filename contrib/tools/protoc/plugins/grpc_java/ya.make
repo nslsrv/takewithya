@@ -1,19 +1,24 @@
-TOOL()
 
 
+IF (USE_PREBUILT_TOOLS)
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/protoc/plugins/grpc_java/ya.make.prebuilt)
+ENDIF()
 
-NO_COMPILER_WARNINGS()
+IF (NOT PREBUILT)
+    PROGRAM()
 
-PEERDIR(
-    contrib/libs/protobuf
-    contrib/libs/protobuf/protoc
-)
+    NO_COMPILER_WARNINGS()
 
-SRCDIR(contrib/libs/grpc-java/compiler/src/java_plugin/cpp)
+    PEERDIR(
+        contrib/libs/protoc
+    )
 
-SRCS(
-    java_plugin.cpp
-    java_generator.cpp
-)
+    SRCDIR(contrib/libs/grpc-java/compiler/src/java_plugin/cpp)
 
-END()
+    SRCS(
+        java_plugin.cpp
+        java_generator.cpp
+    )
+
+    END()
+ENDIF()

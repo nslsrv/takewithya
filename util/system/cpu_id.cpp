@@ -102,6 +102,10 @@ bool NX86::HaveSSE3() noexcept {
     return TX86CpuInfo(0x1).ECX & 1u;
 }
 
+bool NX86::HavePCLMUL() noexcept {
+    return (TX86CpuInfo(0x1).ECX >> 1) & 1u;
+}
+
 bool NX86::HaveSSSE3() noexcept {
     return (TX86CpuInfo(0x1).ECX >> 9) & 1u;
 }
@@ -112,6 +116,10 @@ bool NX86::HaveSSE41() noexcept {
 
 bool NX86::HaveSSE42() noexcept {
     return (TX86CpuInfo(0x1).ECX >> 20) & 1u;
+}
+
+bool NX86::HaveF16C() noexcept {
+    return (TX86CpuInfo(0x1).ECX >> 29) & 1u;
 }
 
 bool NX86::HavePOPCNT() noexcept {
@@ -152,6 +160,10 @@ bool NX86::HaveAVX2() noexcept {
 
 bool NX86::HaveBMI1() noexcept {
     return (TX86CpuInfo(0x7, 0).EBX >> 3) & 1u;
+}
+
+bool NX86::HaveBMI2() noexcept {
+    return (TX86CpuInfo(0x7, 0).EBX >> 8) & 1u;
 }
 
 bool NX86::HaveAVX512F() noexcept {
@@ -243,17 +255,9 @@ const char* CpuBrand(ui32* store) noexcept {
     return (const char*)store;
 }
 
-namespace {
-    struct TFlagsCache {
-#define Y_DEF_NAME(X) const bool Have##X##_ = NX86::Have##X();
-        Y_CPU_ID_ENUMERATE(Y_DEF_NAME)
-#undef Y_DEF_NAME
-    };
-}
-
 #define Y_DEF_NAME(X)                                               \
     bool NX86::CachedHave##X() noexcept {                           \
         return SingletonWithPriority<TFlagsCache, 0>()->Have##X##_; \
     }
-Y_CPU_ID_ENUMERATE(Y_DEF_NAME)
+Y_CPU_ID_ENUMERATE_OUTLINED_CACHED_DEFINE(Y_DEF_NAME)
 #undef Y_DEF_NAME

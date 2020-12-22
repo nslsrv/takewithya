@@ -3,6 +3,7 @@
 #include <util/memory/alloc.h>
 #include <util/digest/numeric.h>
 #include <util/generic/string.h>
+#include <util/generic/string_hash.h>
 #include <util/generic/strbuf.h>
 #include <util/generic/typetraits.h>
 
@@ -11,19 +12,18 @@
 
 namespace std {
     template <>
-    struct less<const char*>: public std::binary_function<const char*, const char*, bool> {
+    struct less<const char*> {
         bool operator()(const char* x, const char* y) const {
             return strcmp(x, y) < 0;
         }
     };
-
     template <>
-    struct equal_to<const char*>: public std::binary_function<const char*, const char*, bool> {
+    struct equal_to<const char*> {
         bool operator()(const char* x, const char* y) const {
             return strcmp(x, y) == 0;
         }
-        bool operator()(const char* x, const TFixedString<char> y) const {
-            return strlen(x) == y.Length && memcmp(x, y.Start, y.Length) == 0;
+        bool operator()(const char* x, const TStringBuf y) const {
+            return strlen(x) == y.size() && memcmp(x, y.data(), y.size()) == 0;
         }
         using is_transparent = void;
     };
@@ -33,7 +33,9 @@ namespace NHashPrivate {
     template <class T, bool needNumericHashing>
     struct THashHelper {
         inline size_t operator()(const T& t) const noexcept {
-            return (size_t)t;
+            return (size_t)t; // If you have a compilation error here, look at explanation below:
+            // Probably error is caused by undefined template specialization of THash<T>
+            // You can find examples of specialization in this file
         }
     };
 
@@ -41,6 +43,15 @@ namespace NHashPrivate {
     struct THashHelper<T, true> {
         inline size_t operator()(const T& t) const noexcept {
             return NumericHash(t);
+        }
+    };
+
+    template <typename C>
+    struct TStringHash {
+        using is_transparent = void;
+
+        inline size_t operator()(const TBasicStringBuf<C> s) const noexcept {
+            return NHashPrivate::ComputeStringHash(s.data(), s.size());
         }
     };
 }
@@ -61,32 +72,35 @@ struct hash<T*>: public ::hash<const T*> {
 };
 
 template <>
-struct hash<const char*> {
-    // note that const char* is implicitly converted to TFixedString
-    inline size_t operator()(const TFixedString<char> s) const noexcept {
-        return TString::hashVal(s.Start, s.Length);
-    }
+struct hash<const char*> : ::NHashPrivate::TStringHash<char> {
 };
 
 template <>
-struct hash<TString> {
-    inline size_t operator()(const TStringBuf s) const {
-        return s.hash();
-    }
+struct THash<TStringBuf> : ::NHashPrivate::TStringHash<char> {
 };
 
 template <>
-struct hash<TUtf16String> {
-    inline size_t operator()(const TWtringBuf s) const {
-        return s.hash();
-    }
+struct hash<TString> : ::NHashPrivate::TStringHash<char> {
+};
+
+template <>
+struct hash<TUtf16String> : ::NHashPrivate::TStringHash<wchar16> {
+};
+
+template <>
+struct THash<TWtringBuf> : ::NHashPrivate::TStringHash<wchar16> {
+};
+
+template <>
+struct hash<TUtf32String> : ::NHashPrivate::TStringHash<wchar32> {
+};
+
+template <>
+struct THash<TUtf32StringBuf> : ::NHashPrivate::TStringHash<wchar32> {
 };
 
 template <class C, class T, class A>
-struct hash<std::basic_string<C, T, A>> {
-    inline size_t operator()(const TStringBufImpl<C>& s) const {
-        return s.hash();
-    }
+struct hash<std::basic_string<C, T, A>> : ::NHashPrivate::TStringHash<C> {
 };
 
 namespace NHashPrivate {
@@ -110,7 +124,7 @@ namespace NHashPrivate {
         }
     };
 
-} // namespace NHashPrivate
+}
 
 template <typename... TArgs>
 struct THash<std::tuple<TArgs...>> {
@@ -131,7 +145,8 @@ namespace NHashPrivate {
         THash<TSecond> SecondHash;
 
     public:
-        inline size_t operator()(const std::pair<TFirst, TSecond>& pair) const {
+        template <class T>
+        inline size_t operator()(const T& pair) const {
             return CombineHashes(FirstHash(pair.first), SecondHash(pair.second));
         }
     };
@@ -143,29 +158,21 @@ namespace NHashPrivate {
      */
     template <class TFirst, class TSecond>
     struct TPairHash<TFirst, TSecond, true> {
-        inline size_t operator()(const std::pair<TFirst, TSecond>& pair) const {
-            return CombineHashes(THash<TFirst>()(pair.first), THash<TSecond>()(pair.second));
+        template <class T>
+        inline size_t operator()(const T& pair) const {
+            // maps have TFirst = const TFoo, which would make for an undefined specialization
+            using TFirstClean = std::remove_cv_t<TFirst>;
+            using TSecondClean = std::remove_cv_t<TSecond>;
+            return CombineHashes(THash<TFirstClean>()(pair.first), THash<TSecondClean>()(pair.second));
         }
     };
-} // namespace NHashPrivate
+}
 
 template <class TFirst, class TSecond>
 struct hash<std::pair<TFirst, TSecond>>: public NHashPrivate::TPairHash<TFirst, TSecond> {
 };
 
-template <>
-struct THash<TStringBuf> {
-    inline size_t operator()(const TStringBuf s) const {
-        return s.hash();
-    }
-};
 
-template <>
-struct THash<TWtringBuf> {
-    inline size_t operator()(const TWtringBuf s) const {
-        return s.hash();
-    }
-};
 
 template <class T>
 struct TEqualTo: public std::equal_to<T> {
@@ -178,6 +185,20 @@ struct TEqualTo<TString>: public TEqualTo<TStringBuf> {
 
 template <>
 struct TEqualTo<TUtf16String>: public TEqualTo<TWtringBuf> {
+    using is_transparent = void;
+};
+
+template <>
+struct TEqualTo<TUtf32String> : public TEqualTo<TUtf32StringBuf> {
+    using is_transparent = void;
+};
+
+template <class TFirst, class TSecond>
+struct TEqualTo<std::pair<TFirst, TSecond>> {
+    template <class TOther>
+    inline bool operator()(const std::pair<TFirst, TSecond>& a, const TOther& b) const {
+        return TEqualTo<TFirst>()(a.first, b.first) && TEqualTo<TSecond>()(a.second, b.second);
+    }
     using is_transparent = void;
 };
 
@@ -195,14 +216,14 @@ struct TCIEqualTo<const char*> {
 template <>
 struct TCIEqualTo<TStringBuf> {
     inline bool operator()(const TStringBuf a, const TStringBuf b) const {
-        return +a == +b && strnicmp(~a, ~b, +a) == 0;
+        return a.size() == b.size() && strnicmp(a.data(), b.data(), a.size()) == 0;
     }
 };
 
 template <>
 struct TCIEqualTo<TString> {
     inline bool operator()(const TString& a, const TString& b) const {
-        return +a == +b && strnicmp(~a, ~b, +a) == 0;
+        return a.size() == b.size() && strnicmp(a.data(), b.data(), a.size()) == 0;
     }
 };
 
@@ -220,6 +241,11 @@ struct TLess<TUtf16String>: public TLess<TWtringBuf> {
     using is_transparent = void;
 };
 
+template <>
+struct TLess<TUtf32String> : public TLess<TUtf32StringBuf> {
+    using is_transparent = void;
+};
+
 template <class T>
 struct TGreater: public std::greater<T> {
 };
@@ -231,5 +257,10 @@ struct TGreater<TString>: public TGreater<TStringBuf> {
 
 template <>
 struct TGreater<TUtf16String>: public TGreater<TWtringBuf> {
+    using is_transparent = void;
+};
+
+template <>
+struct TGreater<TUtf32String> : public TGreater<TUtf32StringBuf> {
     using is_transparent = void;
 };

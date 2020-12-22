@@ -66,6 +66,7 @@ enum WriteFlag {
     kWriteNoFlags = 0,              //!< No flags are set.
     kWriteValidateEncodingFlag = 1, //!< Validate encoding of JSON strings.
     kWriteNanAndInfFlag = 2,        //!< Allow writing of Infinity, -Infinity and NaN.
+    kWriteNoEscapeSlashFlag = 4,    //!< Disable escaping of '/'.
     kWriteDefaultFlags = RAPIDJSON_WRITE_DEFAULT_FLAGS  //!< Default write flags. Can be customized by defining RAPIDJSON_WRITE_DEFAULT_FLAGS
 };
 
@@ -430,6 +431,11 @@ protected:
                     PutUnsafe(*os_, hexDigits[static_cast<unsigned char>(c) >> 4]);
                     PutUnsafe(*os_, hexDigits[static_cast<unsigned char>(c) & 0xF]);
                 }
+            }
+            else if (RAPIDJSON_UNLIKELY(c == '/' && !(writeFlags & kWriteNoEscapeSlashFlag))) {
+                is.Take();
+                PutUnsafe(*os_, '\\');
+                PutUnsafe(*os_, '/');
             }
             else if (RAPIDJSON_UNLIKELY(!(writeFlags & kWriteValidateEncodingFlag ? 
                 Transcoder<SourceEncoding, TargetEncoding>::Validate(is, *os_) :

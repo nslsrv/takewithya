@@ -1,7 +1,9 @@
 #pragma once
 
 #include "compiler.h"
-#include "compat.h"
+#include "defaults.h"
+
+#include <type_traits>
 
 namespace NPrivate {
     struct TStaticBuf {
@@ -27,19 +29,40 @@ namespace NPrivate {
 
 #define STATIC_BUF(x) ::NPrivate::TStaticBuf(x, sizeof(x) - 1)
 
-    constexpr TStaticBuf ArcRoot = STATIC_BUF(__XSTRING(ARCADIA_ROOT));
-    constexpr TStaticBuf BuildRoot = STATIC_BUF(__XSTRING(ARCADIA_BUILD_ROOT));
+    constexpr TStaticBuf ArcRoot = STATIC_BUF(Y_STRINGIZE(ARCADIA_ROOT));
+    constexpr TStaticBuf BuildRoot = STATIC_BUF(Y_STRINGIZE(ARCADIA_BUILD_ROOT));
+
+    constexpr Y_FORCE_INLINE bool IsProperPrefix(const TStaticBuf prefix, const TStaticBuf string) noexcept {
+        if (prefix.Len < string.Len) {
+            for (unsigned i = prefix.Len; i-- > 0;) {
+                if (prefix.Data[i] != string.Data[i]) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    constexpr unsigned RootPrefixLength(const TStaticBuf& f) noexcept {
+        if (IsProperPrefix(ArcRoot, f)) {
+            return ArcRoot.Len + 1;
+        }
+        if (IsProperPrefix(BuildRoot, f)) {
+            return BuildRoot.Len + 1;
+        }
+        return 0;
+    }
+
+    constexpr Y_FORCE_INLINE TStaticBuf StripRoot(const TStaticBuf& f, unsigned prefixLength) noexcept {
+        return TStaticBuf(f.Data + prefixLength, f.Len - prefixLength);
+    }
 
     //$(SRC_ROOT)/prj/blah.cpp -> prj/blah.cpp
-    Y_FORCE_INLINE TStaticBuf StripRoot(const TStaticBuf& f) noexcept {
-        if (ArcRoot.Len < f.Len && strncmp(ArcRoot.Data, f.Data, f.Len)) {
-            return TStaticBuf(f.Data + ArcRoot.Len + 1, f.Len - ArcRoot.Len - 1);
-        }
-        if (BuildRoot.Len < f.Len && strncmp(BuildRoot.Data, f.Data, f.Len)) {
-            return TStaticBuf(f.Data + BuildRoot.Len + 1, f.Len - BuildRoot.Len - 1);
-        }
-        return f;
+    constexpr Y_FORCE_INLINE TStaticBuf StripRoot(const TStaticBuf& f) noexcept {
+        return StripRoot(f, RootPrefixLength(f));
     }
 }
 
-#define __SOURCE_FILE_IMPL__ ::NPrivate::StripRoot(STATIC_BUF(__FILE__))
+#define __SOURCE_FILE_IMPL__ ::NPrivate::StripRoot(STATIC_BUF(__FILE__), std::integral_constant<unsigned, ::NPrivate::RootPrefixLength(STATIC_BUF(__FILE__))>::value)

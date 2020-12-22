@@ -3,9 +3,16 @@
 #    linux-x86_64
 #    windows-x86_64
 
-TOOL()
 
 
+IF (USE_PREBUILT_TOOLS)
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/yasm/ya.make.prebuilt)
+ENDIF()
+
+IF (NOT PREBUILT)
+PROGRAM()
+
+NO_CLANG_COVERAGE()
 
 NO_COMPILER_WARNINGS()
 
@@ -67,6 +74,7 @@ SRCS(
     libyasm/md5.c
     libyasm/mergesort.c
     libyasm/phash.c
+    libyasm/replace_path.c
     libyasm/section.c
     libyasm/strcasecmp.c
     libyasm/strsep.c
@@ -125,3 +133,4 @@ SRCS(
 )
 
 END()
+ENDIF()

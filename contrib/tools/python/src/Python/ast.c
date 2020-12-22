@@ -2179,7 +2179,7 @@ ast_for_expr_stmt(struct compiling *c, const node *n)
        testlist: test (',' test)* [',']
        augassign: '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^='
                 | '<<=' | '>>=' | '**=' | '//='
-       test: ... here starts the operator precendence dance
+       test: ... here starts the operator precedence dance
      */
 
     if (NCH(n) == 1) {
@@ -2284,7 +2284,7 @@ ast_for_print_stmt(struct compiling *c, const node *n)
         dest = ast_for_expr(c, CHILD(n, 2));
         if (!dest)
             return NULL;
-            start = 4;
+        start = 4;
     }
     values_count = (NCH(n) + 1 - start) / 2;
     if (values_count) {
@@ -2520,6 +2520,8 @@ alias_for_import_name(struct compiling *c, const node *n, int store)
             break;
         case STAR:
             str = PyString_InternFromString("*");
+            if (!str)
+                return NULL;
             PyArena_AddPyObject(c->c_arena, str);
             return alias(str, NULL, c->c_arena);
         default:

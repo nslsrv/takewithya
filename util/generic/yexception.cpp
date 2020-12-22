@@ -1,19 +1,15 @@
+#include "bt_exception.h"
 #include "type_name.h"
 #include "yexception.h"
 
-#include <util/folder/dirut.h>
 #include <util/system/backtrace.h>
-
-#include <string>
 
 #include <stdexcept>
 
 #include <cstdio>
-#include <cstdarg>
 
-template <class E>
-static inline TString FormatExc(const E& e) {
-    return TString::Join(STRINGBUF("("), TypeName(&e), STRINGBUF(") "), e.what());
+TString FormatExc(const std::exception &exception) {
+    return TString::Join(TStringBuf("("), TypeName(&exception), TStringBuf(") "), exception.what());
 }
 
 TString CurrentExceptionMessage() {
@@ -25,7 +21,7 @@ TString CurrentExceptionMessage() {
             const TBackTrace* bt = e.BackTrace();
 
             if (bt) {
-                return TString::Join(bt->PrintToString(), STRINGBUF("\n"), FormatExc(e));
+                return TString::Join(bt->PrintToString(), TStringBuf("\n"), FormatExc(e));
             }
 
             return FormatExc(e);
@@ -44,40 +40,38 @@ bool UncaughtException() noexcept {
     return std::uncaught_exception();
 }
 
-void ThrowBadAlloc() {
-    throw std::bad_alloc();
-}
-
-void ThrowLengthError(const char* descr) {
-    throw std::length_error(descr);
-}
-
-void ThrowRangeError(const char* descr) {
-    throw std::out_of_range(descr);
-}
-
 void TSystemError::Init() {
     yexception& exc = *this;
 
-    exc << STRINGBUF("(");
-    exc << TStringBuf(LastSystemErrorText(Status()));
-    exc << STRINGBUF(") ");
+    exc << TStringBuf("(");
+    exc << TStringBuf(LastSystemErrorText(Status_));
+    exc << TStringBuf(") ");
 }
 
-static inline const char* ZeroTerminate(TTempBuf& buf) {
-    char* end = (char*)buf.Current();
+NPrivateException::yexception::yexception() {
+    ZeroTerminate();
+}
 
-    if (!buf.Left()) {
+TStringBuf NPrivateException::yexception::AsStrBuf() const {
+    if (Buf_.Left()) {
+        return TStringBuf(Buf_.Data(), Buf_.Filled());
+    }
+
+    return TStringBuf(Buf_.Data(), Buf_.Filled() - 1);
+}
+
+void NPrivateException::yexception::ZeroTerminate() noexcept {
+    char* end = (char*)Buf_.Current();
+
+    if (!Buf_.Left()) {
         --end;
     }
 
     *end = 0;
-
-    return buf.Data();
 }
 
 const char* NPrivateException::yexception::what() const noexcept {
-    return ZeroTerminate(Buf_);
+    return Buf_.Data();
 }
 
 const TBackTrace* NPrivateException::yexception::BackTrace() const noexcept {
@@ -90,4 +84,12 @@ void fputs(const std::exception& e, FILE* f) {
     message[len++] = '\n';
     message[len] = 0;
     fputs(message, f);
+}
+
+void ::NPrivate::ThrowYException(const ::NPrivate::TSimpleExceptionMessage& sm) {
+    throw sm.Location + yexception() << sm.Message;
+}
+
+void ::NPrivate::ThrowYExceptionWithBacktrace(const ::NPrivate::TSimpleExceptionMessage& sm) {
+    throw sm.Location + TWithBackTrace<yexception>() << sm.Message;
 }

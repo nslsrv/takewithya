@@ -16,7 +16,7 @@
 /// for handy datetime utilities include util/datetime/base.h
 
 /// Current time in microseconds since epoch
-ui64 MicroSeconds();
+ui64 MicroSeconds() noexcept;
 /// Current time in milliseconds since epoch
 inline ui64 MilliSeconds() {
     return MicroSeconds() / ui64(1000);
@@ -26,13 +26,13 @@ inline ui64 millisec() {
     return MilliSeconds();
 }
 /// Current time in seconds since epoch
-ui32 Seconds();
+ui32 Seconds() noexcept;
 ///Current thread time in microseconds
-ui64 ThreadCPUUserTime();
-ui64 ThreadCPUSystemTime();
-ui64 ThreadCPUTime();
+ui64 ThreadCPUUserTime() noexcept;
+ui64 ThreadCPUSystemTime() noexcept;
+ui64 ThreadCPUTime() noexcept;
 
-void NanoSleep(ui64 ns);
+void NanoSleep(ui64 ns) noexcept;
 
 // GetCycleCount guarantees to return synchronous values on different cores
 // and provide constant rate only on modern Intel and AMD processors
@@ -45,8 +45,14 @@ Y_FORCE_INLINE ui64 GetCycleCount() noexcept {
 #if defined(_MSC_VER)
     // Generates the rdtscp instruction, which returns the processor time stamp.
     // The processor time stamp records the number of clock cycles since the last reset.
-    unsigned int aux;
-    return __rdtscp(&aux);
+    extern const bool HaveRdtscp;
+
+    if (HaveRdtscp) {
+        unsigned int aux;
+        return __rdtscp(&aux);
+    } else {
+        return __rdtsc();
+    }
 #elif defined(_x86_64_)
     extern const bool HaveRdtscp;
 
@@ -62,14 +68,21 @@ Y_FORCE_INLINE ui64 GetCycleCount() noexcept {
 
     return ((unsigned long long)lo) | (((unsigned long long)hi) << 32);
 #elif defined(_i386_)
+    extern const bool HaveRdtscp;
+
     ui64 x;
-    __asm__ volatile("rdtscp\n\t"
-                     : "=A"(x)::"%ecx");
+    if (HaveRdtscp) {
+        __asm__ volatile("rdtscp\n\t"
+                         : "=A"(x)::"%ecx");
+    } else {
+        __asm__ volatile("rdtsc\n\t"
+                         : "=A"(x));
+    }
     return x;
-#elif defined(__clang__) && !defined(_arm64_)
-    return __builtin_readcyclecounter();
 #elif defined(_darwin_)
     return mach_absolute_time();
+#elif defined(__clang__) && !defined(_arm_)
+    return __builtin_readcyclecounter();
 #elif defined(_arm32_)
     return MicroSeconds();
 #elif defined(_arm64_)

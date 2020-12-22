@@ -1,17 +1,23 @@
-TOOL()
 
-NO_COMPILER_WARNINGS()
 
-PEERDIR(
-    contrib/libs/protobuf
-    contrib/libs/protobuf/protoc
-)
+IF (USE_PREBUILT_TOOLS)
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/protoc/plugins/cpp_styleguide/ya.make.prebuilt)
+ENDIF()
 
-ADDINCL(contrib/libs/protobuf)
+IF (NOT PREBUILT)
+    PROGRAM()
 
-SRCS(
-    cpp_styleguide.cpp
-)
-SET(IDE_FOLDER "contrib/tools")
+    NO_COMPILER_WARNINGS()
 
-END()
+    PEERDIR(
+        contrib/libs/protoc
+    )
+
+    SRCS(
+        cpp_styleguide.cpp
+    )
+
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/protoc/plugins/cpp_styleguide/ya.make.induced_deps)
+
+    END()
+ENDIF()

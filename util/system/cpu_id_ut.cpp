@@ -2,7 +2,7 @@
 
 #include "platform.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 // There are no tests yet for instructions that use 512-bit wide registers because they are not
 // supported by some compilers yet.
@@ -18,10 +18,13 @@ static void ExecuteSSE3Instruction();
 static void ExecuteSSSE3Instruction();
 static void ExecuteSSE41Instruction();
 static void ExecuteSSE42Instruction();
+static void ExecuteF16CInstruction();
 static void ExecuteAVXInstruction();
 static void ExecuteAVX2Instruction();
 static void ExecutePOPCNTInstruction();
 static void ExecuteBMI1Instruction();
+static void ExecuteBMI2Instruction();
+static void ExecutePCLMULInstruction();
 static void ExecuteAESInstruction();
 static void ExecuteAVXInstruction();
 static void ExecuteAVX2Instruction();
@@ -55,9 +58,9 @@ static void ExecuteXSAVEInstruction() {
 static void ExecuteOSXSAVEInstruction() {
 }
 
-SIMPLE_UNIT_TEST_SUITE(TestCpuId) {
+Y_UNIT_TEST_SUITE(TestCpuId) {
 #define DECLARE_TEST_HAVE_INSTRUCTION(name) \
-    SIMPLE_UNIT_TEST(Test##Have##name) {    \
+    Y_UNIT_TEST(Test##Have##name) {         \
         if (NX86::Have##name()) {           \
             Execute##name##Instruction();   \
         }                                   \
@@ -66,13 +69,13 @@ SIMPLE_UNIT_TEST_SUITE(TestCpuId) {
     Y_CPU_ID_ENUMERATE(DECLARE_TEST_HAVE_INSTRUCTION)
 #undef DECLARE_TEST_HAVE_INSTRUCTION
 
-    SIMPLE_UNIT_TEST(TestSSE2) {
+    Y_UNIT_TEST(TestSSE2) {
 #if defined(_x86_64_)
         UNIT_ASSERT(NX86::HaveSSE2());
 #endif
     }
 
-    SIMPLE_UNIT_TEST(TestCpuBrand) {
+    Y_UNIT_TEST(TestCpuBrand) {
         ui32 store[12];
 
         //Cout << CpuBrand(store) << Endl;;
@@ -80,7 +83,7 @@ SIMPLE_UNIT_TEST_SUITE(TestCpuId) {
         UNIT_ASSERT(strlen(CpuBrand(store)) > 0);
     }
 
-    SIMPLE_UNIT_TEST(TestCachedAndNoncached) {
+    Y_UNIT_TEST(TestCachedAndNoncached) {
 #define Y_DEF_NAME(X) UNIT_ASSERT_VALUES_EQUAL(NX86::Have##X(), NX86::CachedHave##X());
         Y_CPU_ID_ENUMERATE(Y_DEF_NAME)
 #undef Y_DEF_NAME
@@ -131,6 +134,13 @@ void ExecuteSSE42Instruction() {
                          : "eax");
 }
 
+void ExecuteF16CInstruction() {
+    __asm__ __volatile__("vcvtph2ps %%xmm0, %%ymm0\n"
+                         :
+                         :
+                         : "xmm0");
+}
+
 void ExecuteAVXInstruction() {
     __asm__ __volatile__("vzeroupper\n"
                          :
@@ -157,6 +167,20 @@ void ExecuteBMI1Instruction() {
                          :
                          :
                          : "eax");
+}
+
+void ExecuteBMI2Instruction() {
+    __asm__ __volatile__("pdep %%rax, %%rdi, %%rax\n"
+                         :
+                         :
+                         : "rax");
+}
+
+void ExecutePCLMULInstruction() {
+    __asm__ __volatile__("pclmullqlqdq %%xmm0, %%xmm0\n"
+                         :
+                         :
+                         : "xmm0");
 }
 
 void ExecuteAESInstruction() {
@@ -252,6 +276,9 @@ void ExecuteSSE41Instruction() {
 void ExecuteSSE42Instruction() {
 }
 
+void ExecuteF16CInstruction() {
+}
+
 void ExecuteAVXInstruction() {
 }
 
@@ -262,6 +289,12 @@ void ExecutePOPCNTInstruction() {
 }
 
 void ExecuteBMI1Instruction() {
+}
+
+void ExecuteBMI2Instruction() {
+}
+
+void ExecutePCLMULInstruction() {
 }
 
 void ExecuteAESInstruction() {
@@ -340,6 +373,9 @@ void ExecuteSSE41Instruction() {
 void ExecuteSSE42Instruction() {
 }
 
+void ExecuteF16CInstruction() {
+}
+
 void ExecuteAVXInstruction() {
 }
 
@@ -350,6 +386,12 @@ void ExecutePOPCNTInstruction() {
 }
 
 void ExecuteBMI1Instruction() {
+}
+
+void ExecuteBMI2Instruction() {
+}
+
+void ExecutePCLMULInstruction() {
 }
 
 void ExecuteAESInstruction() {

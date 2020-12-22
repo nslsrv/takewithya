@@ -1,10 +1,8 @@
 #pragma once
 // Sample file for parse_enum unittests
 
+#include <util/generic/fwd.h>
 #include <util/system/compiler.h>
-
-// Test forward declarations, pt 1
-class TString;
 
 // Test template declarations
 template<class T>
@@ -105,7 +103,7 @@ static inline void f() {
     (void)(f);
 }
 
-// buggy case taken from library/html/face/parstypes.h
+// buggy case taken from library/cpp/html/face/parstypes.h
 enum TEXT_WEIGHT {
     WEIGHT_ZERO=-1,// NOINDEX_RELEV
     WEIGHT_LOW,    // LOW_RELEV
@@ -132,6 +130,61 @@ enum class EFwdEnum {
 
 // empty enum (bug found by sankear@)
 enum EEmpty {
+};
+
+namespace NComposite::NInner {
+    enum EInCompositeNamespaceSimple {
+        one,
+        two = 2,
+        three,
+    };
+}
+
+namespace NOuterSimple {
+    namespace NComposite::NMiddle::NInner {
+        namespace NInnerSimple {
+            class TEnumClass {
+            public:
+                enum EVeryDeep {
+                    Key0 = 0,
+                    Key1 = 1,
+                };
+            };
+        }
+    }
+}
+
+
+constexpr int func(int value) {
+    return value;
+}
+
+#define MACRO(x, y) x
+
+// enum with nonliteral values
+enum ENonLiteralValues {
+    one = MACRO(1, 2),
+    two = 2,
+    three = func(3),
+    four,
+    five = MACRO(MACRO(1, 2), 2),
+};
+
+#undef MACRO
+
+
+enum EDestructionPriorityTest {
+    first,
+    second
+};
+
+
+enum class NotifyingStatus
+{
+    NEW = 0,
+    FAILED_WILL_RETRY = 1,
+    FAILED_NO_MORE_TRIALS = 2,
+    SENT = 3
 };
 
 /*

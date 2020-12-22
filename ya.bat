@@ -7,21 +7,21 @@ if ERRORLEVEL 1 exit /b 1
 call :dbg Ya: %YA_BAT_REAL%
 call :find_python
 if ERRORLEVEL 1 exit /b 1
-call :dbg Python: %YA_BAT_PYTHON%
-call %YA_BAT_PYTHON% %YA_BAT_REAL% %*
+call :dbg Python: "%YA_BAT_PYTHON%"
+call "%YA_BAT_PYTHON%" "%YA_BAT_REAL%" %*
 exit /b %ERRORLEVEL%
 
 :find_ya
 call :dbg Searching for ya near ya.bat...
 set YA_BAT_REAL=%~dp0ya
-if exist %YA_BAT_REAL% exit /b 0
+if exist "%YA_BAT_REAL%" exit /b 0
 call :err Ya not found
 exit /b 1
 
 :find_python
 call :dbg Searching for python in PATH...
-for /f %%F in ('where python 2^>nul') do (
-    call :test_python %%F
+for /f "delims=" %%F in ('where python 2^>nul') do (
+    call :test_python %%~sF
     if not ERRORLEVEL 1 (
         set YA_BAT_PYTHON=%%F
         exit /b 0

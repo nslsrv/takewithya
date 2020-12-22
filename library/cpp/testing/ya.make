@@ -1,0 +1,10 @@
+RECURSE(
+    common
+    benchmark
+    benchmark/examples
+    benchmark/examples/metrics
+    benchmark/main
+    hook
+    unittest
+    unittest_main
+)

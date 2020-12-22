@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utility.h"
-#include "noncopyable.h"
 
 #include <util/system/yassert.h>
 #include <iterator>
@@ -10,7 +9,7 @@
  * two-way linked list
  */
 template <class T>
-class TIntrusiveListItem: public TNonCopyable {
+class TIntrusiveListItem {
 private:
     using TListItem = TIntrusiveListItem<T>;
 
@@ -26,6 +25,8 @@ public:
     }
 
 public:
+
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return (Prev_ == this) && (Next_ == this);
     }
@@ -109,12 +110,16 @@ public:
     }
 
 private:
+    inline TIntrusiveListItem(const TIntrusiveListItem&) = delete;
+    inline TIntrusiveListItem& operator=(const TIntrusiveListItem&) = delete;
+
+private:
     TListItem* Next_;
     TListItem* Prev_;
 };
 
 template <class T>
-class TIntrusiveList: public TNonCopyable {
+class TIntrusiveList {
 private:
     using TListItem = TIntrusiveListItem<T>;
 
@@ -337,6 +342,8 @@ public:
 public:
     inline TIntrusiveList() noexcept = default;
 
+    inline ~TIntrusiveList() = default;
+
     inline TIntrusiveList(TIntrusiveList&& right) noexcept {
         this->Swap(right);
     }
@@ -350,6 +357,7 @@ public:
         return !Empty();
     }
 
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return End_.Empty();
     }
@@ -566,6 +574,10 @@ public:
     }
 
 private:
+    inline TIntrusiveList(const TIntrusiveList&) = delete;
+    inline TIntrusiveList& operator=(const TIntrusiveList&) = delete;
+
+private:
     TListItem End_;
 };
 
@@ -746,6 +758,7 @@ public:
         return !Empty();
     }
 
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return Begin_ == nullptr;
     }
@@ -842,7 +855,7 @@ public:
     }
 
     template <class TFunctor>
-    inline void ForEach(TFunctor&& functor) const {
+    inline void ForEach(TFunctor&& functor) const noexcept(noexcept(functor(std::declval<TListItem>().Node()))) {
         TListItem* i = Begin_;
 
         while (i) {

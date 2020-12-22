@@ -250,8 +250,7 @@ class MarkParallelAssignments(EnvTransform):
 
     def visit_YieldExprNode(self, node):
         if self.parallel_block_stack:
-            error(node.pos, "Yield not allowed in parallel sections")
-
+            error(node.pos, "'%s' not allowed in parallel sections" % node.expr_keyword)
         return node
 
     def visit_ReturnStatNode(self, node):
@@ -306,6 +305,13 @@ class MarkOverflowingArithmetic(CythonTransform):
             return self.visit_neutral_node(node)
         else:
             return self.visit_dangerous_node(node)
+
+    def visit_SimpleCallNode(self, node):
+        if node.function.is_name and node.function.name == 'abs':
+          # Overflows for minimum value of fixed size ints.
+          return self.visit_dangerous_node(node)
+        else:
+          return self.visit_neutral_node(node)
 
     visit_UnopNode = visit_neutral_node
 
@@ -372,7 +378,7 @@ class SimpleAssignmentTypeInferer(object):
                     self.set_entry_type(entry, py_object_type)
             return
 
-        # Set of assignemnts
+        # Set of assignments
         assignments = set()
         assmts_resolved = set()
         dependencies = {}
@@ -398,7 +404,7 @@ class SimpleAssignmentTypeInferer(object):
             else:
                 entry = node.entry
                 node_type = spanning_type(
-                    types, entry.might_overflow, entry.pos)
+                    types, entry.might_overflow, entry.pos, scope)
             node.inferred_type = node_type
 
         def infer_name_node_type_partial(node):
@@ -407,7 +413,25 @@ class SimpleAssignmentTypeInferer(object):
             if not types:
                 return
             entry = node.entry
-            return spanning_type(types, entry.might_overflow, entry.pos)
+            return spanning_type(types, entry.might_overflow, entry.pos, scope)
+
+        def inferred_types(entry):
+            has_none = False
+            has_pyobjects = False
+            types = []
+            for assmt in entry.cf_assignments:
+                if assmt.rhs.is_none:
+                    has_none = True
+                else:
+                    rhs_type = assmt.inferred_type
+                    if rhs_type and rhs_type.is_pyobject:
+                        has_pyobjects = True
+                    types.append(rhs_type)
+            # Ignore None assignments as long as there are concrete Python type assignments.
+            # but include them if None is the only assigned Python object.
+            if has_none and not has_pyobjects:
+                types.append(py_object_type)
+            return types
 
         def resolve_assignments(assignments):
             resolved = set()
@@ -461,19 +485,20 @@ class SimpleAssignmentTypeInferer(object):
                 continue
             entry_type = py_object_type
             if assmts_resolved.issuperset(entry.cf_assignments):
-                types = [assmt.inferred_type for assmt in entry.cf_assignments]
+                types = inferred_types(entry)
                 if types and all(types):
                     entry_type = spanning_type(
-                        types, entry.might_overflow, entry.pos)
+                        types, entry.might_overflow, entry.pos, scope)
                     inferred.add(entry)
             self.set_entry_type(entry, entry_type)
 
         def reinfer():
             dirty = False
             for entry in inferred:
-                types = [assmt.infer_type()
-                         for assmt in entry.cf_assignments]
-                new_type = spanning_type(types, entry.might_overflow, entry.pos)
+                for assmt in entry.cf_assignments:
+                    assmt.infer_type()
+                types = inferred_types(entry)
+                new_type = spanning_type(types, entry.might_overflow, entry.pos, scope)
                 if new_type != entry.type:
                     self.set_entry_type(entry, new_type)
                     dirty = True
@@ -516,10 +541,10 @@ def simply_type(result_type, pos):
         result_type = PyrexTypes.c_ptr_type(result_type.base_type)
     return result_type
 
-def aggressive_spanning_type(types, might_overflow, pos):
+def aggressive_spanning_type(types, might_overflow, pos, scope):
     return simply_type(reduce(find_spanning_type, types), pos)
 
-def safe_spanning_type(types, might_overflow, pos):
+def safe_spanning_type(types, might_overflow, pos, scope):
     result_type = simply_type(reduce(find_spanning_type, types), pos)
     if result_type.is_pyobject:
         # In theory, any specific Python type is always safe to
@@ -538,6 +563,8 @@ def safe_spanning_type(types, might_overflow, pos):
         # find_spanning_type() only returns 'bint' for clean boolean
         # operations without other int types, so this is safe, too
         return result_type
+    elif result_type.is_pythran_expr:
+        return result_type
     elif result_type.is_ptr:
         # Any pointer except (signed|unsigned|) char* can't implicitly
         # become a PyObject, and inferring char* is now accepted, too.
@@ -553,6 +580,9 @@ def safe_spanning_type(types, might_overflow, pos):
     # TODO: double complex should be OK as well, but we need
     # to make sure everything is supported.
     elif (result_type.is_int or result_type.is_enum) and not might_overflow:
+        return result_type
+    elif (not result_type.can_coerce_to_pyobject(scope)
+            and not result_type.is_error):
         return result_type
     return py_object_type
 

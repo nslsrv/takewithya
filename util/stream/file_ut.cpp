@@ -1,6 +1,6 @@
 #include "file.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/system/tempfile.h>
 
@@ -8,45 +8,45 @@ static const char* TmpFileName = "./fileio";
 static const char* TmpFileContents = "To do good to Mankind is the chivalrous plan";
 static const char* TmpFileSubstring = strstr(TmpFileContents, "chivalrous");
 
-SIMPLE_UNIT_TEST_SUITE(TFileTest) {
-    SIMPLE_UNIT_TEST(InputTest) {
+Y_UNIT_TEST_SUITE(TFileTest) {
+    Y_UNIT_TEST(InputTest) {
         TTempFile tmp(TmpFileName);
 
         {
-            TFileOutput output(TmpFileName);
+            TUnbufferedFileOutput output(TmpFileName);
             output.Write(TmpFileContents, strlen(TmpFileContents));
         }
 
         {
-            TFileInput input(TmpFileName);
+            TUnbufferedFileInput input(TmpFileName);
             TString s = input.ReadAll();
             UNIT_ASSERT_VALUES_EQUAL(s, TmpFileContents);
         }
 
         {
-            TFileInput input(TmpFileName);
+            TUnbufferedFileInput input(TmpFileName);
             input.Skip(TmpFileSubstring - TmpFileContents);
             TString s = input.ReadAll();
             UNIT_ASSERT_VALUES_EQUAL(s, "chivalrous plan");
         }
 
         {
-            TFileOutput output(TFile::ForAppend(TmpFileName));
+            TUnbufferedFileOutput output(TFile::ForAppend(TmpFileName));
             output.Write(TmpFileContents, strlen(TmpFileContents));
         }
 
         {
-            TFileInput input(TmpFileName);
+            TUnbufferedFileInput input(TmpFileName);
             TString s = input.ReadAll();
             UNIT_ASSERT_VALUES_EQUAL(s, TString::Join(TmpFileContents, TmpFileContents));
         }
     }
 
-    SIMPLE_UNIT_TEST(EmptyMapTest) {
+    Y_UNIT_TEST(EmptyMapTest) {
         TTempFile tmp(TmpFileName);
 
         {
-            TFileOutput output(TmpFileName);
+            TUnbufferedFileOutput output(TmpFileName);
             /* Write nothing. */
         }
 

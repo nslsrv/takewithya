@@ -9,8 +9,8 @@ import re
 import sys
 import io
 
-if sys.version_info[:2] < (2, 6) or (3, 0) <= sys.version_info[:2] < (3, 2):
-    sys.stderr.write("Sorry, Cython requires Python 2.6+ or 3.2+, found %d.%d\n" % tuple(sys.version_info[:2]))
+if sys.version_info[:2] < (2, 6) or (3, 0) <= sys.version_info[:2] < (3, 3):
+    sys.stderr.write("Sorry, Cython requires Python 2.6+ or 3.3+, found %d.%d\n" % tuple(sys.version_info[:2]))
     sys.exit(1)
 
 try:
@@ -18,12 +18,12 @@ try:
 except ImportError:
     basestring = str
 
-from . import Errors
 # Do not import Parsing here, import it when needed, because Parsing imports
 # Nodes, which globally needs debug command line options initialized to set a
 # conditional metaclass. These options are processed by CmdLine called from
 # main() in this file.
 # import Parsing
+from . import Errors
 from .StringEncoding import EncodedString
 from .Scanning import PyrexScanner, FileSourceDescriptor
 from .Errors import PyrexError, CompileError, error, warning
@@ -37,6 +37,9 @@ version = Version.version  # legacy attribute - use "Cython.__version__" instead
 module_name_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 verbose = 0
+
+standard_include_path = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                        os.path.pardir, 'Includes'))
 
 class CompilationData(object):
     #  Bundles the information that is passed from transform to transform.
@@ -52,6 +55,7 @@ class CompilationData(object):
     #  result                CompilationResult
     pass
 
+
 class Context(object):
     #  This class encapsulates the context needed for compiling
     #  one or more Cython implementation files along with their
@@ -65,9 +69,10 @@ class Context(object):
     #  language_level        int     currently 2 or 3 for Python 2/3
 
     cython_scope = None
+    language_level = None  # warn when not set but default to Py2
 
     def __init__(self, include_directories, compiler_directives, cpp=False,
-                 language_level=2, options=None, create_testscope=True):
+                 language_level=None, options=None):
         # cython_scope is a hack, set to False by subclasses, in order to break
         # an infinite loop.
         # Better code organization would fix it.
@@ -85,19 +90,25 @@ class Context(object):
         self.pxds = {}  # full name -> node tree
         self._interned = {}  # (type(value), value, *key_args) -> interned_value
 
-        standard_include_path = os.path.abspath(os.path.normpath(
-            os.path.join(os.path.dirname(__file__), os.path.pardir, 'Includes')))
-        self.include_directories = include_directories + [standard_include_path]
-
-        self.set_language_level(language_level)
+        if language_level is not None:
+            self.set_language_level(language_level)
 
         self.gdb_debug_outputwriter = None
 
     def set_language_level(self, level):
-        self.language_level = level
+        from .Future import print_function, unicode_literals, absolute_import, division
+        future_directives = set()
+        if level == '3str':
+            level = 3
+        else:
+            level = int(level)
+            if level >= 3:
+                future_directives.add(unicode_literals)
         if level >= 3:
-            from .Future import print_function, unicode_literals, absolute_import, division
-            self.future_directives.update([print_function, unicode_literals, absolute_import, division])
+            future_directives.update([print_function, absolute_import, division])
+        self.language_level = level
+        self.future_directives = future_directives
+        if level >= 3:
             self.modules['builtins'] = self.modules['__builtin__']
 
     def intern_ustring(self, value, encoding=None):
@@ -215,6 +226,8 @@ class Context(object):
                     rel_path = module_name.replace('.', os.sep) + os.path.splitext(pxd_pathname)[1]
                     if not pxd_pathname.endswith(rel_path):
                         rel_path = pxd_pathname  # safety measure to prevent printing incorrect paths
+                    if Options.source_root:
+                        rel_path = os.path.relpath(pxd_pathname, Options.source_root)
                     source_desc = FileSourceDescriptor(pxd_pathname, rel_path)
                     err, result = self.process_pxd(source_desc, scope, qualified_name)
                     if err:
@@ -237,7 +250,7 @@ class Context(object):
         pxd = self.search_include_directories(qualified_name, ".pxd", pos, sys_path=sys_path)
         if pxd is None: # XXX Keep this until Includes/Deprecated is removed
             if (qualified_name.startswith('python') or
-                qualified_name in ('stdlib', 'stdio', 'stl')):
+                    qualified_name in ('stdlib', 'stdio', 'stl')):
                 standard_include_path = os.path.abspath(os.path.normpath(
                         os.path.join(os.path.dirname(__file__), os.path.pardir, 'Includes')))
                 deprecated_include_path = os.path.join(standard_include_path, 'Deprecated')
@@ -274,8 +287,13 @@ class Context(object):
 
     def search_include_directories(self, qualified_name, suffix, pos,
                                    include=False, sys_path=False):
-        return Utils.search_include_directories(
-            tuple(self.include_directories), qualified_name, suffix, pos, include, sys_path)
+        include_dirs = self.include_directories
+        if sys_path:
+            include_dirs = include_dirs + sys.path
+        # include_dirs must be hashable for caching in @cached_function
+        include_dirs = tuple(include_dirs + [standard_include_path])
+        return search_include_directories(include_dirs, qualified_name,
+                                          suffix, pos, include)
 
     def find_root_package_dir(self, file_path):
         return Utils.find_root_package_dir(file_path)
@@ -283,11 +301,10 @@ class Context(object):
     def check_package_dir(self, dir, package_names):
         return Utils.check_package_dir(dir, tuple(package_names))
 
-    def c_file_out_of_date(self, source_path):
-        c_path = Utils.replace_suffix(source_path, ".c")
-        if not os.path.exists(c_path):
+    def c_file_out_of_date(self, source_path, output_path):
+        if not os.path.exists(output_path):
             return 1
-        c_time = Utils.modification_time(c_path)
+        c_time = Utils.modification_time(output_path)
         if Utils.file_newer_than(source_path, c_time):
             return 1
         pos = [source_path]
@@ -355,7 +372,7 @@ class Context(object):
                         from ..Parser import ConcreteSyntaxTree
                     except ImportError:
                         raise RuntimeError(
-                            "Formal grammer can only be used with compiled Cython with an available pgen.")
+                            "Formal grammar can only be used with compiled Cython with an available pgen.")
                     ConcreteSyntaxTree.p_module(source_filename)
         except UnicodeDecodeError as e:
             #import traceback
@@ -425,21 +442,33 @@ class Context(object):
                 pass
             result.c_file = None
 
+
+def get_output_filename(source_filename, cwd, options):
+    if options.cplus:
+        c_suffix = ".cpp"
+    else:
+        c_suffix = ".c"
+    suggested_file_name = Utils.replace_suffix(source_filename, c_suffix)
+    if options.output_file:
+        out_path = os.path.join(cwd, options.output_file)
+        if os.path.isdir(out_path):
+            return os.path.join(out_path, os.path.basename(suggested_file_name))
+        else:
+            return out_path
+    else:
+        return suggested_file_name
+
+
 def create_default_resultobj(compilation_source, options):
     result = CompilationResult()
     result.main_source_file = compilation_source.source_desc.filename
     result.compilation_source = compilation_source
     source_desc = compilation_source.source_desc
-    if options.output_file:
-        result.c_file = os.path.join(compilation_source.cwd, options.output_file)
-    else:
-        if options.cplus:
-            c_suffix = ".cpp"
-        else:
-            c_suffix = ".c"
-        result.c_file = Utils.replace_suffix(source_desc.filename, c_suffix)
+    result.c_file = get_output_filename(source_desc.filename,
+                        compilation_source.cwd, options)
     result.embedded_metadata = options.embedded_metadata
     return result
+
 
 def run_pipeline(source, options, full_module_name=None, context=None):
     from . import Pipeline
@@ -454,12 +483,16 @@ def run_pipeline(source, options, full_module_name=None, context=None):
     abs_path = os.path.abspath(source)
     full_module_name = full_module_name or options.module_name or context.extract_module_name(source, options)
 
+    Utils.raise_error_if_module_name_forbidden(full_module_name)
+
     if options.relative_path_in_code_position_comments:
         rel_path = full_module_name.replace('.', os.sep) + source_ext
         if not abs_path.endswith(rel_path):
             rel_path = source # safety measure to prevent printing incorrect paths
     else:
         rel_path = abs_path
+    if Options.source_root:
+        rel_path = os.path.relpath(abs_path, Options.source_root)
     source_desc = FileSourceDescriptor(abs_path, rel_path)
     source = CompilationSource(source_desc, full_module_name, cwd)
 
@@ -471,8 +504,7 @@ def run_pipeline(source, options, full_module_name=None, context=None):
         html_filename = os.path.splitext(result.c_file)[0] + ".html"
         if os.path.exists(html_filename):
             with io.open(html_filename, "r", encoding="UTF-8") as html_file:
-                line = html_file.readline()
-                if line.startswith(u'<!-- Generated by Cython'):
+                if u'<!-- Generated by Cython' in html_file.read(100):
                     options.annotate = True
 
     # Get pipeline
@@ -487,15 +519,15 @@ def run_pipeline(source, options, full_module_name=None, context=None):
     return result
 
 
-#------------------------------------------------------------------------
+# ------------------------------------------------------------------------
 #
 #  Main Python entry points
 #
-#------------------------------------------------------------------------
+# ------------------------------------------------------------------------
 
 class CompilationSource(object):
     """
-    Contains the data necesarry to start up a compilation pipeline for
+    Contains the data necessary to start up a compilation pipeline for
     a single compilation unit.
     """
     def __init__(self, source_desc, full_module_name, cwd):
@@ -503,30 +535,13 @@ class CompilationSource(object):
         self.full_module_name = full_module_name
         self.cwd = cwd
 
+
 class CompilationOptions(object):
+    r"""
+    See default_options at the end of this module for a list of all possible
+    options and CmdLine.usage and CmdLine.parse_command_line() for their
+    meaning.
     """
-    Options to the Cython compiler:
-
-    show_version      boolean   Display version number
-    use_listing_file  boolean   Generate a .lis file
-    errors_to_stderr  boolean   Echo errors to stderr when using .lis
-    include_path      [string]  Directories to search for include files
-    output_file       string    Name of generated .c file
-    generate_pxi      boolean   Generate .pxi file for public declarations
-    capi_reexport_cincludes
-                      boolean   Add cincluded headers to any auto-generated
-                                header files.
-    timestamps        boolean   Only compile changed source files.
-    verbose           boolean   Always print source names being compiled
-    compiler_directives  dict   Overrides for pragma options (see Options.py)
-    embedded_metadata    dict   Metadata to embed in the C file as json.
-    evaluate_tree_assertions boolean  Test support: evaluate parse tree assertions
-    language_level    integer   The Python language level: 2 or 3
-    formal_grammar    boolean  Parse the file with the formal grammar
-
-    cplus             boolean   Compile as c++ code
-    """
-
     def __init__(self, defaults=None, **kw):
         self.include_path = []
         if defaults:
@@ -544,24 +559,33 @@ class CompilationOptions(object):
         # ignore valid options that are not in the defaults
         unknown_options.difference_update(['include_path'])
         if unknown_options:
-            # TODO: make this a hard error in 0.22
             message = "got unknown compilation option%s, please remove: %s" % (
                 's' if len(unknown_options) > 1 else '',
                 ', '.join(unknown_options))
-            import warnings
-            warnings.warn(message)
+            raise ValueError(message)
 
+        directive_defaults = Options.get_directive_defaults()
         directives = dict(options['compiler_directives'])  # copy mutable field
+        # check for invalid directives
+        unknown_directives = set(directives) - set(directive_defaults)
+        if unknown_directives:
+            message = "got unknown compiler directive%s: %s" % (
+                's' if len(unknown_directives) > 1 else '',
+                ', '.join(unknown_directives))
+            raise ValueError(message)
         options['compiler_directives'] = directives
+        if directives.get('np_pythran', False) and not options['cplus']:
+            import warnings
+            warnings.warn("C++ mode forced when in Pythran mode!")
+            options['cplus'] = True
         if 'language_level' in directives and 'language_level' not in kw:
-            options['language_level'] = int(directives['language_level'])
+            options['language_level'] = directives['language_level']
+        elif not options.get('language_level'):
+            options['language_level'] = directive_defaults.get('language_level')
         if 'formal_grammar' in directives and 'formal_grammar' not in kw:
             options['formal_grammar'] = directives['formal_grammar']
-        if 'cache' in options:
-            if options['cache'] is True:
-                options['cache'] = os.path.expanduser("~/.cycache")
-            elif options['cache'] in (False, None):
-                del options['cache']
+        if options['cache'] is True:
+            options['cache'] = os.path.join(Utils.get_cython_cache_dir(), 'compiler')
 
         self.__dict__.update(options)
 
@@ -573,6 +597,83 @@ class CompilationOptions(object):
     def create_context(self):
         return Context(self.include_path, self.compiler_directives,
                        self.cplus, self.language_level, options=self)
+
+    def get_fingerprint(self):
+        r"""
+        Return a string that contains all the options that are relevant for cache invalidation.
+        """
+        # Collect only the data that can affect the generated file(s).
+        data = {}
+
+        for key, value in self.__dict__.items():
+            if key in ['show_version', 'errors_to_stderr', 'verbose', 'quiet']:
+                # verbosity flags have no influence on the compilation result
+                continue
+            elif key in ['output_file', 'output_dir']:
+                # ignore the exact name of the output file
+                continue
+            elif key in ['timestamps']:
+                # the cache cares about the content of files, not about the timestamps of sources
+                continue
+            elif key in ['cache']:
+                # hopefully caching has no influence on the compilation result
+                continue
+            elif key in ['compiler_directives']:
+                # directives passed on to the C compiler do not influence the generated C code
+                continue
+            elif key in ['include_path']:
+                # this path changes which headers are tracked as dependencies,
+                # it has no influence on the generated C code
+                continue
+            elif key in ['working_path']:
+                # this path changes where modules and pxd files are found;
+                # their content is part of the fingerprint anyway, their
+                # absolute path does not matter
+                continue
+            elif key in ['create_extension']:
+                # create_extension() has already mangled the options, e.g.,
+                # embedded_metadata, when the fingerprint is computed so we
+                # ignore it here.
+                continue
+            elif key in ['build_dir']:
+                # the (temporary) directory where we collect dependencies
+                # has no influence on the C output
+                continue
+            elif key in ['use_listing_file', 'generate_pxi', 'annotate', 'annotate_coverage_xml']:
+                # all output files are contained in the cache so the types of
+                # files generated must be part of the fingerprint
+                data[key] = value
+            elif key in ['formal_grammar', 'evaluate_tree_assertions']:
+                # these bits can change whether compilation to C passes/fails
+                data[key] = value
+            elif key in ['embedded_metadata', 'emit_linenums', 'c_line_in_traceback', 'gdb_debug', 'relative_path_in_code_position_comments']:
+                # the generated code contains additional bits when these are set
+                data[key] = value
+            elif key in ['cplus', 'language_level', 'compile_time_env', 'np_pythran']:
+                # assorted bits that, e.g., influence the parser
+                data[key] = value
+            elif key == ['capi_reexport_cincludes']:
+                if self.capi_reexport_cincludes:
+                    # our caching implementation does not yet include fingerprints of all the header files
+                    raise NotImplementedError('capi_reexport_cincludes is not compatible with Cython caching')
+            elif key == ['common_utility_include_dir']:
+                if self.common_utility_include_dir:
+                    raise NotImplementedError('common_utility_include_dir is not compatible with Cython caching yet')
+            else:
+                # any unexpected option should go into the fingerprint; it's better
+                # to recompile than to return incorrect results from the cache.
+                data[key] = value
+
+        def to_fingerprint(item):
+            r"""
+            Recursively turn item into a string, turning dicts into lists with
+            deterministic ordering.
+            """
+            if isinstance(item, dict):
+                item = sorted([(repr(key), to_fingerprint(value)) for key, value in item.items()])
+            return repr(item)
+
+        return to_fingerprint(data)
 
 
 class CompilationResult(object):
@@ -644,11 +745,14 @@ def compile_multiple(sources, options):
     timestamps = options.timestamps
     verbose = options.verbose
     context = None
+    cwd = os.getcwd()
     for source in sources:
         if source not in processed:
             if context is None:
                 context = options.create_context()
-            if not timestamps or context.c_file_out_of_date(source):
+            output_filename = get_output_filename(source, cwd, options)
+            out_of_date = context.c_file_out_of_date(source, output_filename)
+            if (not timestamps) or out_of_date:
                 if verbose:
                     sys.stderr.write("Compiling %s\n" % source)
 
@@ -660,13 +764,14 @@ def compile_multiple(sources, options):
             processed.add(source)
     return results
 
+
 def compile(source, options = None, full_module_name = None, **kwds):
     """
     compile(source [, options], [, <option> = <value>]...)
 
     Compile one or more Pyrex implementation files, with optional timestamp
-    checking and recursing on dependecies. The source argument may be a string
-    or a sequence of strings If it is a string and no recursion or timestamp
+    checking and recursing on dependencies.  The source argument may be a string
+    or a sequence of strings.  If it is a string and no recursion or timestamp
     checking is requested, a CompilationResult is returned, otherwise a
     CompilationResultSet is returned.
     """
@@ -676,13 +781,81 @@ def compile(source, options = None, full_module_name = None, **kwds):
     else:
         return compile_multiple(source, options)
 
-#------------------------------------------------------------------------
+
+@Utils.cached_function
+def search_include_directories(dirs, qualified_name, suffix, pos, include=False):
+    """
+    Search the list of include directories for the given file name.
+
+    If a source file position is given, first searches the directory
+    containing that file. Returns None if not found, but does not
+    report an error.
+
+    The 'include' option will disable package dereferencing.
+    """
+
+    if pos:
+        file_desc = pos[0]
+        if not isinstance(file_desc, FileSourceDescriptor):
+            raise RuntimeError("Only file sources for code supported")
+        if include:
+            dirs = (os.path.dirname(file_desc.filename),) + dirs
+        else:
+            dirs = (Utils.find_root_package_dir(file_desc.filename),) + dirs
+
+    dotted_filename = qualified_name
+    if suffix:
+        dotted_filename += suffix
+
+    if not include:
+        names = qualified_name.split('.')
+        package_names = tuple(names[:-1])
+        module_name = names[-1]
+        module_filename = module_name + suffix
+        package_filename = "__init__" + suffix
+
+    for dirname in dirs:
+        path = os.path.join(dirname, dotted_filename)
+        if os.path.exists(path):
+            return path
+
+        if not include:
+            package_dir = Utils.check_package_dir(dirname, package_names)
+            if package_dir is not None:
+                path = os.path.join(package_dir, module_filename)
+                if os.path.exists(path):
+                    return path
+                path = os.path.join(package_dir, module_name,
+                                    package_filename)
+                if os.path.exists(path):
+                    return path
+
+    # Arcadia-specific lookup: search for packages in include paths,
+    # ignoring existence of __init__.py files as packages markers
+    # (they are not required by Arcadia build system)
+    if not include:
+        for dir in dirs:
+            package_dir = os.path.join(dir, *package_names)
+            path = os.path.join(package_dir, module_filename)
+            if os.path.exists(path):
+                return path
+            path = os.path.join(dir, package_dir, module_name,
+                                package_filename)
+            if os.path.exists(path):
+                return path
+
+    return None
+
+
+# ------------------------------------------------------------------------
 #
 #  Main command-line entry point
 #
-#------------------------------------------------------------------------
+# ------------------------------------------------------------------------
+
 def setuptools_main():
     return main(command_line = 1)
+
 
 def main(command_line = 0):
     args = sys.argv[1:]
@@ -709,12 +882,11 @@ def main(command_line = 0):
         sys.exit(1)
 
 
-
-#------------------------------------------------------------------------
+# ------------------------------------------------------------------------
 #
 #  Set the default options depending on the platform
 #
-#------------------------------------------------------------------------
+# ------------------------------------------------------------------------
 
 default_options = dict(
     show_version = 0,
@@ -736,13 +908,16 @@ default_options = dict(
     emit_linenums = False,
     relative_path_in_code_position_comments = True,
     c_line_in_traceback = True,
-    language_level = 2,
+    language_level = None,  # warn but default to 2
     formal_grammar = False,
     gdb_debug = False,
     module_name = None,
-    init_name = None,
+    init_suffix = None,
     compile_time_env = None,
     common_utility_include_dir = None,
     output_dir=None,
     build_dir=None,
+    cache=None,
+    create_extension=None,
+    np_pythran=False
 )

@@ -1,10 +1,10 @@
 #include "walk.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-class TStringListInput: public TWalkInput {
+class TStringListInput: public IWalkInput {
 public:
-    TStringListInput(const yvector<TString>& data)
+    TStringListInput(const TVector<TString>& data)
         : Data_(data)
         , Index_(0)
     {
@@ -23,13 +23,13 @@ protected:
     }
 
 private:
-    const yvector<TString>& Data_;
+    const TVector<TString>& Data_;
     size_t Index_;
 };
 
-SIMPLE_UNIT_TEST_SUITE(TWalkTest) {
-    SIMPLE_UNIT_TEST(ReadTo) {
-        yvector<TString> data;
+Y_UNIT_TEST_SUITE(TWalkTest) {
+    Y_UNIT_TEST(ReadTo) {
+        TVector<TString> data;
         data.push_back("111a");
         data.push_back("222b");
         data.push_back("333c");

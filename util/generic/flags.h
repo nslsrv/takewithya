@@ -6,9 +6,9 @@
 #include <util/generic/typetraits.h>
 #include <util/generic/fwd.h>
 
-class TOutputStream;
+class IOutputStream;
 namespace NPrivate {
-    void PrintFlags(TOutputStream& stream, ui64 value, size_t size);
+    void PrintFlags(IOutputStream& stream, ui64 value, size_t size);
 }
 
 /**
@@ -34,14 +34,12 @@ namespace NPrivate {
 template <class Enum>
 class TFlags {
     static_assert(std::is_enum<Enum>::value, "Expecting an enumeration here.");
-    struct TDummy;
-    using TZero = int(TDummy::*);
 
 public:
     using TEnum = Enum;
     using TInt = std::underlying_type_t<Enum>;
 
-    constexpr TFlags(TZero = 0)
+    constexpr TFlags(std::nullptr_t = 0)
         : Value_(0)
     {
     }
@@ -59,6 +57,10 @@ public:
 
     constexpr TInt ToBaseType() const {
         return Value_;
+    }
+
+    constexpr static TFlags FromBaseType(TInt value) {
+        return TFlags(TFlag(value));
     }
 
     constexpr friend TFlags operator|(TFlags l, TFlags r) {
@@ -175,7 +177,7 @@ public:
         return *this;
     }
 
-    friend TOutputStream& operator<<(TOutputStream& stream, const TFlags& flags) {
+    friend IOutputStream& operator<<(IOutputStream& stream, const TFlags& flags) {
         ::NPrivate::PrintFlags(stream, static_cast<ui64>(flags.Value_), sizeof(TInt));
         return stream;
     }
@@ -232,9 +234,11 @@ struct THash<TFlags<Enum>> {
  * @param FLAGS                         Flags type to declare operator for.
  */
 #define Y_DECLARE_OPERATORS_FOR_FLAGS(FLAGS)                           \
+    Y_DECLARE_UNUSED                                                   \
     constexpr inline FLAGS operator|(FLAGS::TEnum l, FLAGS::TEnum r) { \
         return FLAGS(l) | r;                                           \
     }                                                                  \
+    Y_DECLARE_UNUSED                                                   \
     constexpr inline FLAGS operator~(FLAGS::TEnum value) {             \
         return ~FLAGS(value);                                          \
     }

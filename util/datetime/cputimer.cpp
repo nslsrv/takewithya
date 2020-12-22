@@ -1,6 +1,5 @@
 #include "cputimer.h"
 
-#include <util/system/compat.h>
 #include <util/system/defaults.h>
 #include <util/system/hp_timer.h>
 #include <util/string/printf.h>
@@ -13,13 +12,8 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 #include <sys/param.h>
-#if !defined(_cygwin_) && !defined(_android_)
-#include <sys/sysctl.h>
-#endif
-#else
-#if defined(_win_)
+#elif defined(_win_)
 #include <util/system/winint.h>
-#endif
 #endif
 
 TTimer::TTimer(const TStringBuf message) {
@@ -83,7 +77,7 @@ TString FormatCycles(ui64 cycles) {
     return result;
 }
 
-TFormattedPrecisionTimer::TFormattedPrecisionTimer(const char* message, TOutputStream* out)
+TFormattedPrecisionTimer::TFormattedPrecisionTimer(const char* message, IOutputStream* out)
     : Message(message)
     , Out(out)
 {
@@ -117,7 +111,7 @@ TTimeLogger::TTimeLogger(const TString& message, bool verbose)
 {
     if (Verbose) {
         fprintf(stderr, "=========================================================\n");
-        fprintf(stderr, "%s started: %.24s (%lu) (%d)\n", ~Message, ctime(&Begin), (unsigned long)Begin, (int)getpid());
+        fprintf(stderr, "%s started: %.24s (%lu) (%d)\n", Message.data(), ctime(&Begin), (unsigned long)Begin, (int)getpid());
     }
 }
 
@@ -135,8 +129,8 @@ TTimeLogger::~TTimeLogger() {
     if (Verbose) {
         const char* prefix = (OK) ? "" : "!";
         fprintf(stderr, "%s%s ended: %.24s (%lu) (%d) (took %lus = %s)\n",
-                prefix, ~Message, ctime(&tim), (unsigned long)tim, (int)getpid(),
-                (unsigned long)tim - (unsigned long)Begin, ~FormatCycles(endCycles - BeginCycles));
+                prefix, Message.data(), ctime(&tim), (unsigned long)tim, (int)getpid(),
+                (unsigned long)tim - (unsigned long)Begin, FormatCycles(endCycles - BeginCycles).data());
         fprintf(stderr, "%s=========================================================\n", prefix);
     }
 }

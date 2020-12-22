@@ -1,7 +1,7 @@
 #pragma once
 
-#include "output.h"
 #include "zerocopy.h"
+#include "zerocopy_output.h"
 
 #include <util/generic/string.h>
 #include <util/generic/noncopyable.h>
@@ -15,7 +15,7 @@
 /**
  * Input stream for reading data from a string.
  */
-class TStringInput: public TZeroCopyInputFastReadTo {
+class TStringInput: public IZeroCopyInputFastReadTo {
 public:
     /**
      * Constructs a string input stream that reads character data from the
@@ -30,7 +30,7 @@ public:
      * @param s                         String to read from.
      */
     inline TStringInput(const TString& s) noexcept
-        : S_(s)
+        : S_(&s)
         , Pos_(0)
     {
     }
@@ -47,7 +47,7 @@ protected:
     void DoUndo(size_t len) override;
 
 private:
-    const TString& S_;
+    const TString* S_;
     size_t Pos_;
 
     friend class TStringStream;
@@ -56,7 +56,7 @@ private:
 /**
  * Stream for writing data into a string.
  */
-class TStringOutput: public TOutputStream {
+class TStringOutput: public IZeroCopyOutput {
 public:
     /**
      * Constructs a string output stream that appends character data to the
@@ -73,6 +73,8 @@ public:
     {
     }
 
+     TStringOutput(TStringOutput&& s) noexcept = default;
+
     ~TStringOutput() override;
 
     /**
@@ -83,8 +85,11 @@ public:
         S_.reserve(S_.size() + size);
     }
 
-private:
+protected:
+    size_t DoNext(void** ptr) override;
+    void DoUndo(size_t len) override;
     void DoWrite(const void* buf, size_t len) override;
+    void DoWriteC(char c) override;
 
 private:
     TString& S_;
@@ -94,27 +99,27 @@ private:
  * String input/output stream, similar to `std::stringstream`.
  */
 class TStringStream: private TEmbedPolicy<TString>, public TStringInput, public TStringOutput {
-    using TEmbededString = TEmbedPolicy<TString>;
+    using TEmbeddedString = TEmbedPolicy<TString>;
 
 public:
     inline TStringStream()
-        : TEmbededString()
-        , TStringInput(*TEmbededString::Ptr())
-        , TStringOutput(*TEmbededString::Ptr())
+        : TEmbeddedString()
+        , TStringInput(*TEmbeddedString::Ptr())
+        , TStringOutput(*TEmbeddedString::Ptr())
     {
     }
 
     inline TStringStream(const TString& string)
-        : TEmbededString(string)
-        , TStringInput(*TEmbededString::Ptr())
-        , TStringOutput(*TEmbededString::Ptr())
+        : TEmbeddedString(string)
+        , TStringInput(*TEmbeddedString::Ptr())
+        , TStringOutput(*TEmbeddedString::Ptr())
     {
     }
 
     inline TStringStream(const TStringStream& other)
-        : TEmbededString(other.Str())
-        , TStringInput(*TEmbededString::Ptr())
-        , TStringOutput(*TEmbededString::Ptr())
+        : TEmbeddedString(other.Str())
+        , TStringInput(*TEmbeddedString::Ptr())
+        , TStringOutput(*TEmbeddedString::Ptr())
     {
     }
 
@@ -154,14 +159,7 @@ public:
      *                                  to be null-terminated.
      */
     inline const char* Data() const noexcept {
-        return Ptr()->Data();
-    }
-
-    /**
-     * @see Data()
-     */
-    inline const char* operator~() const noexcept {
-        return Data();
+        return Ptr()->data();
     }
 
     /**
@@ -171,20 +169,14 @@ public:
      *                                  available for reading.
      */
     inline size_t Size() const noexcept {
-        return Ptr()->Size();
-    }
-
-    /**
-     * @see Size()
-     */
-    inline size_t operator+() const noexcept {
-        return Size();
+        return Ptr()->size();
     }
 
     /**
      * @returns                         Whether the string that this stream
      *                                  operates on is empty.
      */
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return Str().empty();
     }
@@ -202,6 +194,7 @@ public:
 
     // TODO: compatibility with existing code, remove
 
+    Y_PURE_FUNCTION
     bool empty() const {
         return Empty();
     }

@@ -1,11 +1,11 @@
 #include "length.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/generic/string.h>
 
-SIMPLE_UNIT_TEST_SUITE(TestLengthIO) {
-    SIMPLE_UNIT_TEST(TestLengthLimitedInput) {
+Y_UNIT_TEST_SUITE(TestLengthIO) {
+    Y_UNIT_TEST(TestLengthLimitedInput) {
         char buf[16];
 
         TStringStream s1("abcd");
@@ -14,7 +14,7 @@ SIMPLE_UNIT_TEST_SUITE(TestLengthIO) {
         UNIT_ASSERT_VALUES_EQUAL(l1.Read(buf, 1), 0);
     }
 
-    SIMPLE_UNIT_TEST(TestCountingInput) {
+    Y_UNIT_TEST(TestCountingInput) {
         char buf[16];
 
         TStringStream s1("abc\ndef\n");
@@ -34,7 +34,7 @@ SIMPLE_UNIT_TEST_SUITE(TestLengthIO) {
         UNIT_ASSERT_VALUES_EQUAL(l1.Counter(), 8);
     }
 
-    SIMPLE_UNIT_TEST(TestCountingOutput) {
+    Y_UNIT_TEST(TestCountingOutput) {
         TStringStream s1;
         TCountingOutput l1(&s1);
 
@@ -45,7 +45,7 @@ SIMPLE_UNIT_TEST_SUITE(TestLengthIO) {
         UNIT_ASSERT_VALUES_EQUAL(l1.Counter(), 5);
 
         TString buf("aaa");
-        TOutputStream::TPart parts[] = {{~buf, +buf}, {~buf, +buf}, {~buf, +buf}};
+        IOutputStream::TPart parts[] = {{buf.data(), buf.size()}, {buf.data(), buf.size()}, {buf.data(), buf.size()}};
         l1.Write(parts, 3);
         UNIT_ASSERT_VALUES_EQUAL(l1.Counter(), 14);
     }

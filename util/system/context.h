@@ -5,10 +5,9 @@
 #include "compiler.h"
 #include "sanitizers.h"
 
-#include <util/generic/region.h>
+#include <util/generic/array_ref.h>
 #include <util/generic/utility.h>
 #include <util/generic/yexception.h>
-#include <util/generic/reinterpretcast.h>
 
 #define STACK_ALIGN (8 * PLATFORM_DATA_ALIGN)
 
@@ -21,7 +20,7 @@
 /*
  * switch method
  */
-#if defined(_bionic_)
+#if defined(_bionic_) || defined(__IOS__)
 #define USE_GENERIC_CONT
 #elif defined(_cygwin_)
 #define USE_UCONTEXT_CONT
@@ -48,12 +47,14 @@
 struct ITrampoLine {
     virtual ~ITrampoLine() = default;
 
-    virtual void DoRun() = 0;
+    virtual void DoRun();
+    virtual void DoRunNaked();
 };
 
 struct TContClosure {
     ITrampoLine* TrampoLine;
-    TMemRegion Stack;
+    TArrayRef<char> Stack;
+    const char* ContName = nullptr;
 };
 
 #if defined(USE_UCONTEXT_CONT)
@@ -69,8 +70,8 @@ public:
         getcontext(&Ctx_);
 
         Ctx_.uc_link = 0;
-        Ctx_.uc_stack.ss_sp = (void*)c.Stack.Data();
-        Ctx_.uc_stack.ss_size = c.Stack.Size();
+        Ctx_.uc_stack.ss_sp = (void*)c.Stack.data();
+        Ctx_.uc_stack.ss_size = c.Stack.size();
         Ctx_.uc_stack.ss_flags = 0;
 
         extern void ContextTrampoLine(void* arg);
@@ -141,12 +142,12 @@ private:
         TSan() noexcept;
         TSan(const TContClosure& c) noexcept;
 
-        void DoRun() override;
+        void DoRunNaked() override;
 
         ITrampoLine* TL;
     };
 
-#if defined(_asan_enabled_)
+#if defined(_asan_enabled_) || defined(_tsan_enabled_)
     TSan San_;
 #endif
 };
@@ -168,3 +169,13 @@ static inline size_t MachineContextSize() noexcept {
 #undef STACK_CNT
 #undef EXTRA_PUSH_ARGS
 #endif
+
+struct TExceptionSafeContext: public TContMachineContext {
+    using TContMachineContext::TContMachineContext;
+
+    void SwitchTo(TExceptionSafeContext* to) noexcept;
+
+#if defined(_unix_)
+    void* Buf_[2] = {nullptr, nullptr};
+#endif
+};

@@ -1,8 +1,10 @@
 
 
-LIBRARY()
+PY23_LIBRARY()
 
-NO_LINT()
+VERSION(1.1.1)
+
+LICENSE(BSD3)
 
 PY_SRCS(
     TOP_LEVEL
@@ -12,4 +14,17 @@ PY_SRCS(
     markupsafe/_native.py
 )
 
+NO_LINT()
+
+RESOURCE_FILES(
+    PREFIX contrib/python/MarkupSafe/
+    .dist-info/LICENSE.txt
+    .dist-info/METADATA
+    .dist-info/top_level.txt
+)
+
 END()
+
+RECURSE_FOR_TESTS(
+    tests
+)

@@ -7,6 +7,7 @@
 #if defined(_win_)
 #include <io.h>
 #else
+#include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
 #endif
@@ -16,11 +17,18 @@
 #ifdef _unix_
 using namespace NDaemonMaker;
 
-static void Fork() {
+static bool Fork(EParent parent) {
     pid_t pid = fork();
 
     if (pid > 0) {
-        exit(0);
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        if (parent == callExitFromParent) {
+            _exit(0);
+        } else {
+            return true;
+        }
     } else if (pid < 0) {
         ythrow TSystemError() << "Cannot fork";
     }
@@ -32,10 +40,11 @@ static void Fork() {
     pid = fork();
 
     if (pid > 0) {
-        exit(0);
+        _exit(0);
     } else if (pid < 0) {
         ythrow TSystemError() << "Cannot second fork";
     }
+    return false;
 }
 
 #endif
@@ -62,13 +71,15 @@ static void CloseFromToExcept(int from, int to, const int* except) {
 #endif /* _unix_ */
 }
 
-void NDaemonMaker::MakeMeDaemon(ECloseDescriptors cd, EStdIoDescriptors iod, EChDir chd) {
+bool NDaemonMaker::MakeMeDaemon(ECloseDescriptors cd, EStdIoDescriptors iod, EChDir chd, EParent parent) {
     (void)cd;
     (void)iod;
     (void)chd;
 
 #ifdef _unix_
-    Fork();
+    if (Fork(parent)) {
+        return true;
+    }
 
     if (chd == chdirRoot) {
         if (chdir("/"))
@@ -132,6 +143,9 @@ void NDaemonMaker::MakeMeDaemon(ECloseDescriptors cd, EStdIoDescriptors iod, ECh
         default:
             break;
     }
+    return false;
+#else
+    return true;
 #endif
 }
 

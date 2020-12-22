@@ -1,13 +1,13 @@
 #include "endpoint.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/generic/hash_set.h>
 #include <util/generic/strbuf.h>
 
-SIMPLE_UNIT_TEST_SUITE(TEndpointTest) {
-    SIMPLE_UNIT_TEST(TestSimple) {
-        yvector<TNetworkAddress> addrs;
+Y_UNIT_TEST_SUITE(TEndpointTest) {
+    Y_UNIT_TEST(TestSimple) {
+        TVector<TNetworkAddress> addrs;
 
         TEndpoint ep0;
 
@@ -53,8 +53,8 @@ SIMPLE_UNIT_TEST_SUITE(TEndpointTest) {
         TEndpoint ep3(new NAddr::TAddrInfo(&*na3.Begin()));
 
         UNIT_ASSERT(ep3.IsIpV6());
-        UNIT_ASSERT(ep3.IpToString().StartsWith(STRINGBUF("2a02:6b8:0:1410:")));
-        UNIT_ASSERT(ep3.IpToString().EndsWith(STRINGBUF(":5f6c:f3c2")));
+        UNIT_ASSERT(ep3.IpToString().StartsWith(TStringBuf("2a02:6b8:0:1410:")));
+        UNIT_ASSERT(ep3.IpToString().EndsWith(TStringBuf(":5f6c:f3c2")));
         UNIT_ASSERT_VALUES_EQUAL(54321, ep3.Port());
 
         TNetworkAddress na4("2a02:6b8:0:1410:0::5f6c:f3c2", 1);
@@ -64,7 +64,7 @@ SIMPLE_UNIT_TEST_SUITE(TEndpointTest) {
 
         ep3_.SetPort(54321);
 
-        yhash_set<TEndpoint> he;
+        THashSet<TEndpoint> he;
 
         he.insert(ep0);
         he.insert(ep1);
@@ -86,7 +86,7 @@ SIMPLE_UNIT_TEST_SUITE(TEndpointTest) {
         UNIT_ASSERT_VALUES_EQUAL(5u, he.size());
     }
 
-    SIMPLE_UNIT_TEST(TestEqual) {
+    Y_UNIT_TEST(TestEqual) {
         const TString ip1 = "2a02:6b8:0:1410::5f6c:f3c2";
         const TString ip2 = "2a02:6b8:0:1410::5f6c:f3c3";
 
@@ -105,5 +105,19 @@ SIMPLE_UNIT_TEST_SUITE(TEndpointTest) {
         UNIT_ASSERT(ep1 == ep2);
         UNIT_ASSERT(!(ep1 == ep3));
         UNIT_ASSERT(!(ep1 == ep4));
+    }
+
+    Y_UNIT_TEST(TestIsUnixSocket) {
+        TNetworkAddress na1(TUnixSocketPath("/tmp/unixsocket"));
+        TEndpoint ep1(new NAddr::TAddrInfo(&*na1.Begin()));
+
+        TNetworkAddress na2("2a02:6b8:0:1410::5f6c:f3c2", 24242);
+        TEndpoint ep2(new NAddr::TAddrInfo(&*na2.Begin()));
+
+        UNIT_ASSERT(ep1.IsUnix());
+        UNIT_ASSERT(ep1.SockAddr()->sa_family == AF_UNIX);
+
+        UNIT_ASSERT(!ep2.IsUnix());
+        UNIT_ASSERT(ep2.SockAddr()->sa_family != AF_UNIX);
     }
 }

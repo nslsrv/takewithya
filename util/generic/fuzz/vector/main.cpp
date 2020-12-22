@@ -2,7 +2,7 @@
 #include <util/stream/mem.h>
 
 template <class T>
-static inline T Read(TInputStream& in) {
+static inline T Read(IInputStream& in) {
     T t;
 
     in.LoadOrFail(&t, sizeof(t));
@@ -14,7 +14,7 @@ extern "C" int LLVMFuzzerTestOneInput(const ui8* data, size_t size) {
     TMemoryInput mi(data, size);
 
     try {
-        yvector<ui16> v;
+        TVector<ui16> v;
 
         while (mi.Avail()) {
             char cmd = Read<char>(mi);
@@ -40,6 +40,7 @@ extern "C" int LLVMFuzzerTestOneInput(const ui8* data, size_t size) {
             }
         }
     } catch (...) {
+        // ¯\_(ツ)_/¯
     }
 
     return 0; // Non-zero return values are reserved for future use.

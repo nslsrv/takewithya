@@ -1,9 +1,9 @@
 #include "easy.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TEasyRndInterface) {
-    SIMPLE_UNIT_TEST(Test1) {
+Y_UNIT_TEST_SUITE(TEasyRndInterface) {
+    Y_UNIT_TEST(Test1) {
         {
             ui32 x = 0;
 

@@ -7,6 +7,7 @@
 #include <util/system/defaults.h>
 #include <util/generic/ylimits.h>
 #include <util/generic/utility.h>
+#include <util/generic/vector.h>
 #include <util/generic/yexception.h>
 #include <util/datetime/base.h>
 
@@ -30,9 +31,13 @@
 #endif
 
 enum EContPoll {
-    CONT_POLL_READ = 1,
-    CONT_POLL_WRITE = 2,
-    CONT_POLL_ONE_SHOT = 4
+    CONT_POLL_READ           = 1,
+    CONT_POLL_WRITE          = 2,
+    CONT_POLL_RDHUP          = 4,
+    CONT_POLL_ONE_SHOT       = 8,  // Disable after first event
+    CONT_POLL_MODIFY         = 16, // Modify already added event
+    CONT_POLL_EDGE_TRIGGERED = 32, // Notify only about new events
+    CONT_POLL_BACKLOG_EMPTY  = 64, // Backlog is empty (seen end of request, EAGAIN or truncated read)
 };
 
 static inline bool IsSocket(SOCKET fd) noexcept {
@@ -102,11 +107,24 @@ public:
 
     inline void SetImpl(void* data, int fd, int what) {
         TEvent e[2];
+        int flags = EV_ADD;
+
+        if (what & CONT_POLL_EDGE_TRIGGERED) {
+            if (what & CONT_POLL_BACKLOG_EMPTY) {
+                // When backlog is empty, edge-triggered does not need restart.
+                return;
+            }
+            flags |= EV_CLEAR;
+        }
+
+        if (what & CONT_POLL_ONE_SHOT) {
+            flags |= EV_ONESHOT;
+        }
 
         Zero(e);
 
-        EV_SET(e + 0, fd, EVFILT_READ, EV_ADD | ((what & CONT_POLL_READ) ? EV_ENABLE : EV_DISABLE) | ((what & CONT_POLL_ONE_SHOT) ? EV_ONESHOT : 0), 0, 0, data);
-        EV_SET(e + 1, fd, EVFILT_WRITE, EV_ADD | ((what & CONT_POLL_WRITE) ? EV_ENABLE : EV_DISABLE) | ((what & CONT_POLL_ONE_SHOT) ? EV_ONESHOT : 0), 0, 0, data);
+        EV_SET(e + 0, fd, EVFILT_READ, flags | ((what & CONT_POLL_READ) ? EV_ENABLE : EV_DISABLE), 0, 0, data);
+        EV_SET(e + 1, fd, EVFILT_WRITE, flags | ((what & CONT_POLL_WRITE) ? EV_ENABLE : EV_DISABLE), 0, 0, data);
 
         if (Kevent(Fd_, e, 2, nullptr, 0, nullptr) == -1) {
             ythrow TSystemError() << "kevent add failed";
@@ -207,10 +225,33 @@ public:
 
         Zero(e);
 
-        e.events = CalcWhat(what);
+        if (what & CONT_POLL_EDGE_TRIGGERED) {
+            if (what & CONT_POLL_BACKLOG_EMPTY) {
+                // When backlog is empty, edge-triggered does not need restart.
+                return;
+            }
+            e.events |= EPOLLET;
+        }
+
+        if (what & CONT_POLL_ONE_SHOT) {
+            e.events |= EPOLLONESHOT;
+        }
+
+        if (what & CONT_POLL_READ) {
+            e.events |= EPOLLIN;
+        }
+
+        if (what & CONT_POLL_WRITE) {
+            e.events |= EPOLLOUT;
+        }
+
+        if (what & CONT_POLL_RDHUP) {
+            e.events |= EPOLLRDHUP;
+        }
+
         e.data.ptr = data;
 
-        if (epoll_ctl(Fd_, EPOLL_CTL_ADD, fd, &e) == -1) {
+        if ((what & CONT_POLL_MODIFY) || epoll_ctl(Fd_, EPOLL_CTL_ADD, fd, &e) == -1) {
             if (epoll_ctl(Fd_, EPOLL_CTL_MOD, fd, &e) == -1) {
                 ythrow TSystemError() << "epoll add failed";
             }
@@ -256,23 +297,9 @@ public:
             ret |= CONT_POLL_WRITE;
         }
 
-        return ret;
-    }
 
-private:
-    static inline int CalcWhat(int w) noexcept {
-        int ret = 0;
-
-        if (w & CONT_POLL_READ) {
-            ret |= EPOLLIN;
-        }
-
-        if (w & CONT_POLL_WRITE) {
-            ret |= EPOLLOUT;
-        }
-
-        if (w & CONT_POLL_ONE_SHOT) {
-            ret |= EPOLLONESHOT;
+        if (event->events & EPOLLRDHUP) {
+            ret |= CONT_POLL_RDHUP;
         }
 
         return ret;
@@ -319,12 +346,16 @@ struct TSelectPollerNoTemplate {
             Filter_ = s;
         }
 
+        inline void Clear(int c) noexcept {
+            Filter_ &= ~c;
+        }
+
         inline int Filter() const noexcept {
             return Filter_;
         }
     };
 
-    class TFds: public yhash<SOCKET, THandle> {
+    class TFds: public THashMap<SOCKET, THandle> {
     public:
         inline void Set(SOCKET fd, void* data, int filter) {
             (*this)[fd].Set(data, filter);
@@ -464,6 +495,12 @@ public:
         SOCKET* keysToDeleteBegin = (SOCKET*)&in[3];
         SOCKET* keysToDeleteEnd = keysToDeleteBegin;
 
+#if defined(_msan_enabled_) // msan doesn't handle FD_ZERO and cause false positive BALANCER-1347
+        memset(in, 0, sizeof(*in));
+        memset(out, 0, sizeof(*out));
+        memset(errFds, 0, sizeof(*errFds));
+#endif
+
         FD_ZERO(in);
         FD_ZERO(out);
         FD_ZERO(errFds);
@@ -487,9 +524,9 @@ public:
 
         TEvent* eventsStart = events;
 
-        for (typename TFds::const_iterator it = Fds_.begin(); it != Fds_.end(); ++it) {
+        for (typename TFds::iterator it = Fds_.begin(); it != Fds_.end(); ++it) {
             const SOCKET fd = it->first;
-            const THandle& handle = it->second;
+            THandle& handle = it->second;
 
             if (FD_ISSET(fd, errFds)) {
                 (events++)->Error(handle.Data(), EIO);
@@ -516,6 +553,12 @@ public:
                     if (handle.Filter() & CONT_POLL_ONE_SHOT) {
                         *keysToDeleteEnd = fd;
                         ++keysToDeleteEnd;
+                    }
+
+                    if (handle.Filter() & CONT_POLL_EDGE_TRIGGERED) {
+                        // Emulate edge-triggered for level-triggered select().
+                        // User must restart waiting this event when needed.
+                        handle.Clear(what);
                     }
                 }
             }
@@ -596,7 +639,7 @@ private:
     TEvent* End_;
 
     TMyMutex CommandLock_;
-    yvector<TCommand> Commands_;
+    TVector<TCommand> Commands_;
 
     SOCKET Signal_[2];
 };
@@ -627,7 +670,7 @@ public:
 
     static inline int ExtractFilter(const TEvent* event) noexcept {
         if (TBase::ExtractStatus(event)) {
-            return CONT_POLL_READ | CONT_POLL_WRITE;
+            return CONT_POLL_READ | CONT_POLL_WRITE | CONT_POLL_RDHUP;
         }
 
         return TBase::ExtractFilterImpl(event);

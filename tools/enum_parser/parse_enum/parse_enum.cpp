@@ -1,6 +1,6 @@
 #include "parse_enum.h"
 
-#include <library/cppparser/parser.h>
+#include <library/cpp/cppparser/parser.h>
 
 #include <util/stream/file.h>
 #include <util/stream/output.h>
@@ -25,23 +25,23 @@ public:
         Values.push_back(text.Data);
     }
 
-    ~TValuesContext() throw() override {
+    ~TValuesContext() override {
     }
 
-    yvector<TString> Values;
+    TVector<TString> Values;
 };
 
-static yvector<TString> ParseEnumValues(const TString& strValues) {
-    yvector<TString> result;
+static TVector<TString> ParseEnumValues(const TString& strValues) {
+    TVector<TString> result;
 
     TValuesContext ctx;
     TCppSaxParser parser(&ctx);
-    TMemoryInput in(~strValues, +strValues);
-    TransferData(static_cast<TInputStream*>(&in), &parser);
+    TMemoryInput in(strValues.data(), strValues.size());
+    TransferData(static_cast<IInputStream*>(&in), &parser);
     parser.Finish();
     for (const auto& value : ctx.Values) {
-        Y_ENSURE(+value >= 2, "Invalid C-style string. ");
-        TString dequoted = value.substr(1, +value - 2);
+        Y_ENSURE(value.size() >= 2, "Invalid C-style string. ");
+        TString dequoted = value.substr(1, value.size() - 2);
         // TODO: support C-unescaping
         result.push_back(dequoted);
     }
@@ -61,7 +61,7 @@ public:
     {
     }
 
-    ~TEnumContext() throw() override {
+    ~TEnumContext() override {
     }
 
     void AddEnumItem() {
@@ -81,7 +81,7 @@ public:
 
     template<class T>
     void AppendValue(const T& text) {
-        // by pg@ adivce, do not parse enum value
+        // by pg@ advice, do not parse enum value
         // leave it to C++ compiler to parse/interpret
 
         if (!CurrentItem.Value)
@@ -95,7 +95,7 @@ public:
     }
 
     void DoWhiteSpace(const TText& text) override {
-        if (InValue == InEnumState) {
+        if (InValue == InEnumState || InValueCall == InEnumState) {
             AppendValue(text.Data);
         }
     }
@@ -104,16 +104,29 @@ public:
         // For some reason, parser sometimes passes chunks like '{};' here,
         // so we handle each symbol separately.
         for (const char& sym : text.Data) {
-            if ('{' == sym) {
+            if ('{' == sym && InValue != InEnumState && InValueCall != InEnumState) {
                 BodyDetected = true;
                 continue;
-            } else if ('=' == sym) {
+            } else if ('=' == sym && InValueCall != InEnumState) {
                 InEnumState = InValue;
                 continue;
-            } else if (',' == sym) {
+            } else if (('(' == sym || '{' == sym) && (InValue == InEnumState || InValueCall == InEnumState)) {
+                // there may be constexpr function / constructor / macro call in value part,
+                // handle them appropriately
+                InEnumState = InValueCall;
+                ++BracesBalance;
+                AppendValue(sym);
+                continue;
+            } else if ((')' == sym || '}' == sym) && InValueCall == InEnumState) {
+                if (!--BracesBalance) {
+                    InEnumState = InValue;
+                }
+                AppendValue(sym);
+                continue;
+            } else if ((',' == sym || '}' == sym) && InValueCall != InEnumState) {
                 AddEnumItem();
                 continue;
-            } else if (InValue == InEnumState) {
+            } else if (InValue == InEnumState || InValueCall == InEnumState) {
                 AppendValue(sym);
             }
         }
@@ -124,7 +137,7 @@ public:
             return;
         }
 
-        if (InValue == InEnumState) {
+        if (InValue == InEnumState || InValueCall == InEnumState) {
             AppendValue(text.Data);
             return;
         }
@@ -134,8 +147,8 @@ public:
     }
 
     void DoMultiLineComment(const TText& text) override {
-        Y_ENSURE(+text.Data >= 4, "Invalid multiline comment " << text.Data.Quote() << ". ");
-        TString commentText = text.Data.substr(2, +text.Data - 4);
+        Y_ENSURE(text.Data.size() >= 4, "Invalid multiline comment " << text.Data.Quote() << ". ");
+        TString commentText = text.Data.substr(2, text.Data.size() - 4);
         commentText = StripString(commentText);
         CurrentItem.CommentText = commentText;
         CurrentItem.Aliases = ParseEnumValues(commentText);
@@ -151,12 +164,15 @@ public:
         Begin,
         AfterCppName,
         InValue,
+        InValueCall,
         End,
     };
     EInEnumState InEnumState = Begin;
 
     TEnum& CurrentEnum;
     TItem CurrentItem;
+
+    size_t BracesBalance = 0;
 };
 
 /**
@@ -181,14 +197,20 @@ public:
     {
     }
 
-    ~TCppContext() throw() override {
+    ~TCppContext() override {
     }
 
     void DoSyntax(const TText& text) override {
         // For some reason, parser sometimes passes chunks like '{};' here,
         // so we handle each symbol separately.
         const TString& syn = text.Data;
-        for (size_t i = 0; i < +syn; ++i) {
+        if (syn == "::" && InCompositeNamespace) {
+            LastScope += syn;
+            InCompositeNamespace = false;
+            ScopeDeclaration = true;
+            return;
+        }
+        for (size_t i = 0; i < syn.size(); ++i) {
             if ('{' == syn[i]) {
                 OnEnterScope(text.Offset + i);
                 if (InEnum) {
@@ -234,6 +256,7 @@ public:
             //PrintScope();
         } else if (text.Data == "namespace") {
             NextScopeName = NAMESPACE;
+            LastScope.clear();
             ScopeDeclaration = true;
             //PrintScope();
         }
@@ -246,7 +269,12 @@ public:
         if (InEnum) {
             CurrentEnum.CppName = text.Data;
         } else {
-            LastScope = text.Data;
+            if (NextScopeName == NAMESPACE) {
+                InCompositeNamespace = true;
+                LastScope += text.Data;
+            } else {
+                LastScope = text.Data;
+            }
         }
         ScopeDeclaration = false;
     }
@@ -256,7 +284,7 @@ public:
             // unnamed declaration or typedef
             ScopeDeclaration = false;
         }
-
+        InCompositeNamespace = false;
         Scope.push_back(LastScope);
         LastScope.clear();
         //PrintScope();
@@ -339,6 +367,7 @@ private:
 
     bool InEnum = false;
     bool ScopeDeclaration = false;
+    bool InCompositeNamespace = false;
     TString NextScopeName = BLOCK;
     TString LastScope;
     size_t EnumPos = 0;
@@ -347,26 +376,26 @@ private:
 
 
 TEnumParser::TEnumParser(const TString& fileName) {
-    THolder<TInputStream> hIn;
-    TInputStream* in = nullptr;
+    THolder<IInputStream> hIn;
+    IInputStream* in = nullptr;
     if (fileName != "-") {
         SourceFileName = fileName;
-        hIn.Reset(new TBufferedFileInput(fileName));
+        hIn.Reset(new TFileInput(fileName));
         in = hIn.Get();
     } else {
         in = &Cin;
     }
     TString contents = in->ReadAll();
-    Parse(~contents, +contents);
+    Parse(contents.data(), contents.size());
 }
 
 TEnumParser::TEnumParser(const char* data, size_t length) {
     Parse(data, length);
 }
 
-TEnumParser::TEnumParser(TInputStream& in) {
+TEnumParser::TEnumParser(IInputStream& in) {
     TString contents = in.ReadAll();
-    Parse(~contents, +contents);
+    Parse(contents.data(), contents.size());
 }
 
 void TEnumParser::Parse(const char* data, size_t length) {

@@ -55,6 +55,7 @@ static void MakeStat(TFileStat& st, const TSystemFStat& fs) {
     st.ATime = fs.st_atime;
     st.MTime = fs.st_mtime;
     st.CTime = fs.st_ctime;
+    st.INode = fs.st_ino;
 #else
     timeval tv;
     FileTimeToTimeval(&fs.ftCreationTime, &tv);
@@ -68,6 +69,7 @@ static void MakeStat(TFileStat& st, const TSystemFStat& fs) {
     st.Uid = 0;
     st.Gid = 0;
     st.Size = ((ui64)fs.nFileSizeHigh << 32) | fs.nFileSizeLow;
+    st.INode = ((ui64)fs.nFileIndexHigh << 32) | fs.nFileIndexLow;
 #endif
 }
 
@@ -116,34 +118,34 @@ void TFileStat::MakeFromFileName(const char* fileName, bool nofollow) {
 }
 
 TFileStat::TFileStat(const TFsPath& fileName, bool nofollow) {
-    MakeFromFileName(~fileName.GetPath(), nofollow);
+    MakeFromFileName(fileName.GetPath().data(), nofollow);
 }
 
 TFileStat::TFileStat(const TString& fileName, bool nofollow) {
-    MakeFromFileName(~fileName, nofollow);
+    MakeFromFileName(fileName.data(), nofollow);
 }
 
 TFileStat::TFileStat(const char* fileName, bool nofollow) {
     MakeFromFileName(fileName, nofollow);
 }
 
-bool TFileStat::IsNull() const {
+bool TFileStat::IsNull() const noexcept {
     return *this == TFileStat();
 }
 
-bool TFileStat::IsFile() const {
+bool TFileStat::IsFile() const noexcept {
     return S_ISREG(Mode);
 }
 
-bool TFileStat::IsDir() const {
+bool TFileStat::IsDir() const noexcept {
     return S_ISDIR(Mode);
 }
 
-bool TFileStat::IsSymlink() const {
+bool TFileStat::IsSymlink() const noexcept {
     return S_ISLNK(Mode);
 }
 
-bool operator==(const TFileStat& l, const TFileStat& r) {
+bool operator==(const TFileStat& l, const TFileStat& r) noexcept {
     return l.Mode == r.Mode &&
            l.Uid == r.Uid &&
            l.Gid == r.Gid &&
@@ -154,7 +156,7 @@ bool operator==(const TFileStat& l, const TFileStat& r) {
            l.CTime == r.CTime;
 }
 
-bool operator!=(const TFileStat& l, const TFileStat& r) {
+bool operator!=(const TFileStat& l, const TFileStat& r) noexcept {
     return !(l == r);
 }
 
@@ -204,5 +206,5 @@ i64 GetFileLength(const char* name) {
 }
 
 i64 GetFileLength(const TString& name) {
-    return GetFileLength(~name);
+    return GetFileLength(name.data());
 }

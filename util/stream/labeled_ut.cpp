@@ -1,9 +1,9 @@
 #include "str.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TLabeledOutputTest) {
-    SIMPLE_UNIT_TEST(TBasicTest) {
+Y_UNIT_TEST_SUITE(TLabeledOutputTest) {
+    Y_UNIT_TEST(TBasicTest) {
         TStringStream out;
         int x = 3;
         out << LabeledOutput(x, 1, 2, 3 + 4);

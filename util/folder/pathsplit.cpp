@@ -17,8 +17,8 @@ static inline size_t ToReserve(const T& t) {
 }
 
 void TPathSplitTraitsUnix::DoParseFirstPart(const TStringBuf part) {
-    if (part == STRINGBUF(".")) {
-        push_back(STRINGBUF("."));
+    if (part == TStringBuf(".")) {
+        push_back(TStringBuf("."));
 
         return;
     }
@@ -31,7 +31,7 @@ void TPathSplitTraitsUnix::DoParseFirstPart(const TStringBuf part) {
 }
 
 void TPathSplitTraitsUnix::DoParsePart(const TStringBuf part0) {
-    DoAppendHint(+part0 / 8);
+    DoAppendHint(part0.size() / 8);
 
     TStringBuf next(part0);
     TStringBuf part;
@@ -46,8 +46,8 @@ void TPathSplitTraitsUnix::DoParsePart(const TStringBuf part0) {
 void TPathSplitTraitsWindows::DoParseFirstPart(const TStringBuf part0) {
     TStringBuf part(part0);
 
-    if (part == STRINGBUF(".")) {
-        push_back(STRINGBUF("."));
+    if (part == TStringBuf(".")) {
+        push_back(TStringBuf("."));
 
         return;
     }
@@ -55,7 +55,7 @@ void TPathSplitTraitsWindows::DoParseFirstPart(const TStringBuf part0) {
     if (IsAbsolutePath(part)) {
         IsAbsolute = true;
 
-        if (+part > 1 && part[1] == ':') {
+        if (part.size() > 1 && part[1] == ':') {
             Drive = part.SubStr(0, 2);
             part = part.SubStr(2);
         }
@@ -65,23 +65,23 @@ void TPathSplitTraitsWindows::DoParseFirstPart(const TStringBuf part0) {
 }
 
 void TPathSplitTraitsWindows::DoParsePart(const TStringBuf part0) {
-    DoAppendHint(+part0 / 8);
+    DoAppendHint(part0.size() / 8);
 
     size_t pos = 0;
     TStringBuf part(part0);
 
-    while (pos < +part) {
-        while (pos < +part && this->IsPathSep(part[pos])) {
+    while (pos < part.size()) {
+        while (pos < part.size() && this->IsPathSep(part[pos])) {
             ++pos;
         }
 
-        const char* begin = ~part + pos;
+        const char* begin = part.data() + pos;
 
-        while (pos < +part && !this->IsPathSep(part[pos])) {
+        while (pos < part.size() && !this->IsPathSep(part[pos])) {
             ++pos;
         }
 
-        AppendComponent(TStringBuf(begin, ~part + pos));
+        AppendComponent(TStringBuf(begin, part.data() + pos));
     }
 }
 
@@ -107,9 +107,9 @@ TString TPathSplitStore::DoReconstruct(const TStringBuf slash) const {
 }
 
 void TPathSplitStore::AppendComponent(const TStringBuf comp) {
-    if (!comp || comp == STRINGBUF(".")) {
+    if (!comp || comp == TStringBuf(".")) {
         ; // ignore
-    } else if (comp == STRINGBUF("..") && !empty() && back() != STRINGBUF("..")) {
+    } else if (comp == TStringBuf("..") && !empty() && back() != TStringBuf("..")) {
         pop_back();
     } else {
         // push back first .. also
@@ -122,7 +122,7 @@ TStringBuf TPathSplitStore::Extension() const {
 }
 
 template <>
-void Out<TPathSplit>(TOutputStream& o, const TPathSplit& ps) {
+void Out<TPathSplit>(IOutputStream& o, const TPathSplit& ps) {
     o << ps.Reconstruct();
 }
 
@@ -135,14 +135,14 @@ TString JoinPaths(const TPathSplit& p1, const TPathSplit& p2) {
 }
 
 TStringBuf CutExtension(const TStringBuf fileName) {
-    if (fileName.Empty()) {
+    if (fileName.empty()) {
         return fileName;
     }
 
     TStringBuf name;
     TStringBuf extension;
     fileName.RSplit('.', name, extension);
-    if (name.Empty()) {
+    if (name.empty()) {
         // dot at a start or not found
         return name;
     } else {

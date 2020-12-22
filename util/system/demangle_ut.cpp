@@ -1,9 +1,9 @@
 #include "demangle.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TDemangleTest) {
-    SIMPLE_UNIT_TEST(SimpleTest) {
+Y_UNIT_TEST_SUITE(TDemangleTest) {
+    Y_UNIT_TEST(SimpleTest) {
         // just check it does not crash or leak
         CppDemangle("hello");
         CppDemangle("");

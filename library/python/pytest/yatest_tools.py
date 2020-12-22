@@ -210,8 +210,8 @@ def get_unique_file_path(dir_path, filename):
         max_path = 260
         filename_len = len(dir_path) + len(extension) + tail_length + len(os.sep)
         if filename_len < max_path:
-            filename = filename[:max_path - filename_len]
-    filename = filename[:get_max_filename_length(dir_path) - tail_length - len(extension)] + extension
+            filename = yatest_lib.tools.trim_string(filename, max_path - filename_len)
+    filename = yatest_lib.tools.trim_string(filename, get_max_filename_length(dir_path) - tail_length - len(extension)) + extension
     candidate = os.path.join(dir_path, filename)
     while os.path.exists(candidate):
         counter += 1
@@ -253,7 +253,7 @@ def normalize_filename(filename):
     :param some_string: string to be converted to a valid file name
     :return: valid file name
     """
-    not_allowed_pattern = r"[\[\]\/:*?\"\'<>|+\0\\\t\n\r\x0b\x0c]"
+    not_allowed_pattern = r"[\[\]\/:*?\"\'<>|+\0\\\s\x0b\x0c]"
     filename = re.sub(not_allowed_pattern, ".", filename)
     return re.sub(r"\.{2,}", ".", filename)
 
@@ -280,11 +280,11 @@ def get_test_log_file_path(output_dir, class_name, test_name, extension="log"):
 
 
 def split_node_id(nodeid, test_suffix=None):
+    path, possible_open_bracket, params = nodeid.partition('[')
     separator = "::"
-    if separator in nodeid:
-        path, test_name = nodeid.split(separator, 1)
+    if separator in path:
+        path, test_name = path.split(separator, 1)
     else:
-        path = nodeid
         test_name = os.path.basename(path)
     if test_suffix:
         test_name += "::" + test_suffix
@@ -296,4 +296,5 @@ def split_node_id(nodeid, test_suffix=None):
             class_name += separator + klass_name
     if separator in test_name:
         test_name = test_name.split(separator)[-1]
+    test_name += possible_open_bracket + params
     return yatest_lib.tools.to_utf8(class_name), yatest_lib.tools.to_utf8(test_name)

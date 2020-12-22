@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import subprocess
 import signal
 import time
@@ -85,15 +86,12 @@ def call_wine_cmd_once(wine, cmd, env, mode):
     prefixes = [
         'Microsoft (R)',
         'Copyright (C)',
-        'err:menubuilder:',
-        'err:wincodecs:',
-        'err:winediag:',
-        'err:ole:',
         'Application tried to create a window',
         'The graphics driver is missing',
         'Could not load wine-gecko',
         'wine: configuration in',
         'wine: created the configuration directory',
+        'libpng warning:'
     ]
 
     suffixes = [
@@ -105,7 +103,13 @@ def call_wine_cmd_once(wine, cmd, env, mode):
     ]
 
     substrs = [
-        'Creating library Z:'
+        'Creating library Z:',
+        'err:heap',
+        'err:menubuilder:',
+        'err:msvcrt',
+        'err:ole:',
+        'err:wincodecs:',
+        'err:winediag:',
     ]
 
     def good_line(l):
@@ -195,7 +199,8 @@ def is_good_file(p):
     if os.path.getsize(p) < 300:
         return False
 
-    if p.endswith('asm.obj'):
+    asm_pattern = re.compile('asm(\.\w+)?\.obj$')
+    if asm_pattern.search(p):
         pass
     elif p.endswith('.obj'):
         with open(p, 'rb') as f:
@@ -310,6 +315,48 @@ def colorize(out):
     return '\n'.join(colorize_line(l) for l in out.split('\n'))
 
 
+def trim_path(path, winepath):
+    p1 = run_subprocess([winepath, '-w', path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1_stdout, p1_stderr = p1.communicate()
+    win_path = p1_stdout.strip()
+
+    if p1.returncode != 0 or not win_path:
+        # Fall back to only winepath -s
+        win_path = path
+
+    p2 = run_subprocess([winepath, '-s', win_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p2_stdout, p2_stderr = p2.communicate()
+    short_path = p2_stdout.strip()
+
+    check_path = short_path
+    if check_path.startswith(('Z:', 'z:')):
+        check_path = check_path[2:]
+
+    if not check_path[1:].startswith((path[1:4], path[1:4].upper())):
+        raise Exception('Cannot trim path {}; 1st winepath exit code: {}, stdout:\n{}\n  stderr:\n{}\n 2nd winepath exit code: {}, stdout:\n{}\n  stderr:\n{}'.format(path, p1.returncode, p1_stdout, p1_stderr, p2.returncode, p2_stdout, p2_stderr))
+
+    return short_path
+
+
+def downsize_path(path, short_names):
+    flag = ''
+    if path.startswith('/Fo'):
+        flag = '/Fo'
+        path = path[3:]
+
+    for full_name, short_name in short_names.items():
+        if path.startswith(full_name):
+            path = path.replace(full_name, short_name)
+
+    return flag + path
+
+
+def make_full_path_arg(arg, bld_root, short_root):
+    if arg[0] != '/' and len(os.path.join(bld_root, arg)) > 250:
+        return os.path.join(short_root, arg)
+    return arg
+
+
 def run_main():
     topdirs = ['/%s/' % d for d in os.listdir('/')]
 
@@ -330,6 +377,9 @@ def run_main():
         if pp is not None:
             return p[:pp] + 'Z:' + p[pp:].replace('/', '\\')
 
+        if p.startswith('/Fo'):
+            return '/Fo' + p[3:].replace('/', '\\')
+
         return p
 
     parser = argparse.ArgumentParser()
@@ -337,6 +387,8 @@ def run_main():
     parser.add_argument('-v', action='store', dest='version', default='120')
     parser.add_argument('-I', action='append', dest='incl_paths')
     parser.add_argument('mode', action='store')
+    parser.add_argument('arcadia_root', action='store')
+    parser.add_argument('arcadia_build_root', action='store')
     parser.add_argument('binary', action='store')
     parser.add_argument('free_args', nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -347,7 +399,9 @@ def run_main():
     version = args.version
     incl_paths = args.incl_paths
     free_args = args.free_args
+    bld_root = args.arcadia_build_root
 
+    wine_dir = os.path.dirname(os.path.dirname(wine))
     bin_dir = os.path.dirname(binary)
     tc_dir = os.path.dirname(os.path.dirname(os.path.dirname(bin_dir)))
     if not incl_paths:
@@ -367,7 +421,18 @@ def run_main():
     env['WindowsSdkDir'] = fix_path(tc_dir)
     env['LIBPATH'] = fix_path(tc_dir + '/VC/lib/amd64')
     env['LIB'] = fix_path(tc_dir + '/VC/lib/amd64')
-    cmd = [binary] + [fix_path(x) for x in free_args]
+    env['LD_LIBRARY_PATH'] = ':'.join(wine_dir + d for d in ['/lib', '/lib64', '/lib64/wine'])
+
+    short_names = {}
+    winepath = os.path.join(os.path.dirname(wine), 'winepath')
+    short_names[bld_root] = trim_path(bld_root, winepath)
+    # Slow for no benefit.
+    # arc_root = args.arcadia_root
+    # short_names[arc_root] = trim_path(arc_root, winepath)
+
+    process_link = lambda x: make_full_path_arg(x, bld_root, short_names[bld_root]) if mode in ('link', 'lib') else x
+
+    cmd = [binary] + [fix_path(process_link(downsize_path(x, short_names))) for x in free_args]
 
     for x in ('/NOLOGO', '/nologo', '/FD'):
         try:
@@ -386,7 +451,7 @@ def run_main():
             'tout': tout
         }
 
-        slave_cmd = [sys.executable, '--python', sys.argv[0], wine, 'slave', json.dumps(args)]
+        slave_cmd = [sys.executable, sys.argv[0], wine, 'slave', json.dumps(args)]
         p = run_subprocess(slave_cmd, stderr=subprocess.STDOUT, stdout=subprocess.PIPE, shell=False)
         out, _ = p.communicate()
         return p.wait(), out
@@ -398,7 +463,7 @@ def run_main():
             log = colorize(log)
         print >>sys.stderr, log
 
-    tout = 15
+    tout = 200
 
     while True:
         rc, out = run_process(0, tout)
@@ -423,6 +488,8 @@ def run_main():
 
             # non-zero return code - bad, return it immediately
             if rc:
+                print >>sys.stderr, '##win_cmd##' + ' '.join(cmd)
+                print >>sys.stderr, '##args##' + ' '.join(free_args)
                 return rc
 
             # check for output existence(if we expect it!) and real length
@@ -439,6 +506,12 @@ def run_main():
 
 
 def main():
+    prefix_suffix = os.environ.pop('WINEPREFIX_SUFFIX', None)
+    if prefix_suffix is not None:
+        prefix = os.environ.pop('WINEPREFIX', None)
+        if prefix is not None:
+            os.environ['WINEPREFIX'] = os.path.join(prefix, prefix_suffix)
+
     # just in case
     signal.alarm(2000)
 

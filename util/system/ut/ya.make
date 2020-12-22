@@ -3,11 +3,24 @@ UNITTEST_FOR(util)
 
 
 FORK_TESTS()
+
 FORK_SUBTESTS()
+
 SPLIT_FACTOR(40)
+
 TIMEOUT(300)
 
 SIZE(MEDIUM)
+
+IF (OS_DARWIN)
+    SIZE(LARGE)
+    TAG(ya:fat ya:force_sandbox ya:exotic_platform)
+    TIMEOUT(3600)
+ENDIF()
+
+PEERDIR(
+    library/cpp/testing/benchmark
+)
 
 SRCS(
     system/align_ut.cpp
@@ -17,10 +30,12 @@ SRCS(
     system/byteorder_ut.cpp
     system/compat_ut.cpp
     system/compiler_ut.cpp
+    system/context_ut.cpp
     system/condvar_ut.cpp
     system/cpu_id_ut.cpp
     system/datetime_ut.cpp
     system/demangle_ut.cpp
+    system/daemon_ut.cpp
     system/direct_io_ut.cpp
     system/env_ut.cpp
     system/error_ut.cpp
@@ -33,9 +48,12 @@ SRCS(
     system/fstat_ut.cpp
     system/getpid_ut.cpp
     system/guard_ut.cpp
+    system/hi_lo_ut.cpp
     system/hostname_ut.cpp
     system/info_ut.cpp
+    system/interrupt_signals_ut.cpp
     system/mem_info_ut.cpp
+    system/mincore_ut.cpp
     system/mutex_ut.cpp
     system/nice_ut.cpp
     system/pipe_ut.cpp
@@ -57,5 +75,11 @@ SRCS(
     system/unaligned_mem_ut.cpp
     system/yassert_ut.cpp
 )
+
+IF (OS_WINDOWS)
+    DEPENDS(
+        util/system/ut/stdin_osfhandle
+    )
+ENDIF()
 
 END()

@@ -1,4 +1,11 @@
+
+
 LIBRARY()
+
+LICENSE(
+    LGPL
+)
+
 
 NO_UTIL()
 

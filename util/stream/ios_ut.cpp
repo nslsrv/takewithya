@@ -4,7 +4,7 @@
 #include "buffered.h"
 #include "walk.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/string/cast.h>
 #include <util/memory/tempbuf.h>
@@ -27,6 +27,9 @@ class TStreamsTest: public TTestBase {
     UNIT_TEST(TestReadTo);
     UNIT_TEST(TestWtrokaOutput);
     UNIT_TEST(TestIStreamOperators);
+    UNIT_TEST(TestWchar16Output);
+    UNIT_TEST(TestWchar32Output);
+    UNIT_TEST(TestUtf16StingOutputByChars);
     UNIT_TEST_SUITE_END();
 
 public:
@@ -42,6 +45,9 @@ public:
     void TestWtrokaOutput();
     void TestIStreamOperators();
     void TestReadTo();
+    void TestWchar16Output();
+    void TestWchar32Output();
+    void TestUtf16StingOutputByChars();
 };
 
 UNIT_TEST_SUITE_REGISTRATION(TStreamsTest);
@@ -163,7 +169,7 @@ void TStreamsTest::TestMemoryStream() {
     }
 }
 
-class TMyStringOutput: public TOutputStream {
+class TMyStringOutput: public IOutputStream {
 public:
     inline TMyStringOutput(TString& s, size_t buflen) noexcept
         : S_(s)
@@ -185,7 +191,7 @@ public:
             s.append((const char*)p[i].buf, p[i].len);
         }
 
-        DoWrite(~s, +s);
+        DoWrite(s.data(), s.size());
     }
 
 private:
@@ -204,13 +210,13 @@ void TStreamsTest::TestBufferedIO() {
             TString str(" ");
             str += ToString(i % 10);
 
-            bo.Write(~str, +str);
+            bo.Write(str.data(), str.size());
         }
 
         bo.Finish();
     }
 
-    UNIT_ASSERT_EQUAL(+s, 2000);
+    UNIT_ASSERT_EQUAL(s.size(), 2000);
 
     {
         const size_t buflen = 11;
@@ -242,7 +248,7 @@ void TStreamsTest::TestBufferedIO() {
         }
 
         for (size_t i = 0; i < 1000; ++i) {
-            bo.Write(~f, i);
+            bo.Write(f.data(), i);
         }
 
         bo.Finish();
@@ -253,13 +259,13 @@ void TStreamsTest::TestBufferStream() {
     TBufferStream stream;
     TString s = "test";
 
-    stream.Write(~s, +s);
+    stream.Write(s.data(), s.size());
     char buf[5];
     size_t readed = stream.Read(buf, 4);
     UNIT_ASSERT_EQUAL(4, readed);
-    UNIT_ASSERT_EQUAL(0, strncmp(~s, buf, 4));
+    UNIT_ASSERT_EQUAL(0, strncmp(s.data(), buf, 4));
 
-    stream.Write(~s, +s);
+    stream.Write(s.data(), s.size());
     readed = stream.Read(buf, 2);
     UNIT_ASSERT_EQUAL(2, readed);
     UNIT_ASSERT_EQUAL(0, strncmp("te", buf, 2));
@@ -273,9 +279,9 @@ void TStreamsTest::TestBufferStream() {
 }
 
 namespace {
-    class TStringListInput: public TWalkInput {
+    class TStringListInput: public IWalkInput {
     public:
-        TStringListInput(const yvector<TString>& data)
+        TStringListInput(const TVector<TString>& data)
             : Data_(data)
             , Index_(0)
         {
@@ -294,7 +300,7 @@ namespace {
         }
 
     private:
-        const yvector<TString>& Data_;
+        const TVector<TString>& Data_;
         size_t Index_;
     };
 
@@ -325,7 +331,7 @@ namespace {
         "\rone two",
         "123",
         "\t\r "};
-    void TestStreamReadTo1(TInputStream& input, const char* comment) {
+    void TestStreamReadTo1(IInputStream& input, const char* comment) {
         TString tmp;
         input.ReadTo(tmp, 'c');
         UNIT_ASSERT_VALUES_EQUAL_C(tmp, "111a222b333", comment);
@@ -341,7 +347,7 @@ namespace {
         UNIT_ASSERT_VALUES_EQUAL_C(tmp, "66f", comment);
     }
 
-    void TestStreamReadTo2(TInputStream& input, const char* comment) {
+    void TestStreamReadTo2(IInputStream& input, const char* comment) {
         TString s;
         size_t i = 0;
         while (input.ReadLine(s)) {
@@ -351,17 +357,17 @@ namespace {
         }
     }
 
-    void TestStreamReadTo3(TInputStream& input, const char* comment) {
+    void TestStreamReadTo3(IInputStream& input, const char* comment) {
         UNIT_ASSERT_VALUES_EQUAL_C(input.ReadLine(), "111a222b333c444d555e666f", comment);
     }
 
-    void TestStreamReadTo4(TInputStream& input, const char* comment) {
+    void TestStreamReadTo4(IInputStream& input, const char* comment) {
         UNIT_ASSERT_VALUES_EQUAL_C(input.ReadTo('\0'), "one", comment);
         UNIT_ASSERT_VALUES_EQUAL_C(input.ReadTo('\0'), "two", comment);
         UNIT_ASSERT_VALUES_EQUAL_C(input.ReadTo('\0'), "three", comment);
     }
 
-    void TestStrokaInput(TInputStream& input, const char* comment) {
+    void TestStrokaInput(IInputStream& input, const char* comment) {
         TString line;
         ui32 i = 0;
         TInstant start = Now();
@@ -376,17 +382,17 @@ namespace {
     void TestStreamReadTo(const TString& text, T test) {
         TStringInput is(text);
         test(is, "TStringInput");
-        TMemoryInput mi(~text, +text);
+        TMemoryInput mi(text.data(), text.size());
         test(mi, "TMemoryInput");
-        TBuffer b(~text, +text);
+        TBuffer b(text.data(), text.size());
         TBufferInput bi(b);
         test(bi, "TBufferInput");
         TStringInput slave(text);
         TBufferedInput bdi(&slave);
         test(bdi, "TBufferedInput");
-        yvector<TString> lst(1, text);
+        TVector<TString> lst(1, text);
         TStringListInput sli(lst);
-        test(sli, "TWalkInput");
+        test(sli, "IWalkInput");
     }
 }
 
@@ -402,8 +408,8 @@ void TStreamsTest::TestReadTo() {
 void TStreamsTest::TestStrokaInput() {
     TString s;
     for (ui32 i = 0; i < 100000; ++i) {
-        yvector<char> d(i % 1000, 'a');
-        s.append(~d, +d);
+        TVector<char> d(i % 1000, 'a');
+        s.append(d.data(), d.size());
         s.append('\n');
     }
     TestStreamReadTo(s, ::TestStrokaInput);
@@ -443,4 +449,45 @@ void TStreamsTest::TestWtrokaOutput() {
     }
 
     UNIT_ASSERT(s == Text);
+}
+
+void TStreamsTest::TestWchar16Output() {
+    TString s;
+    TStringOutput os(s);
+    os << wchar16(97); // latin a
+    os << u'\u044E'; // cyrillic ю
+    os << u'я';
+    os << wchar16(0xD801); // high surrogate is printed as replacement character U+FFFD
+    os << u'b';
+
+    UNIT_ASSERT_VALUES_EQUAL(s, "aюя" "\xEF\xBF\xBD" "b");
+}
+
+void TStreamsTest::TestWchar32Output() {
+    TString s;
+    TStringOutput os(s);
+    os << wchar32(97); // latin a
+    os << U'\u044E'; // cyrillic ю
+    os << U'я';
+    os << U'\U0001F600'; // grinning face
+    os << u'b';
+
+    UNIT_ASSERT_VALUES_EQUAL(s, "aюя" "\xF0\x9F\x98\x80" "b");
+}
+
+void TStreamsTest::TestUtf16StingOutputByChars() {
+    TString s = "\xd1\x87\xd0\xb8\xd1\x81\xd1\x82\xd0\xb8\xd1\x87\xd0\xb8\xd1\x81\xd1\x82\xd0\xb8";
+    TUtf16String w = UTF8ToWide(s);
+
+    UNIT_ASSERT_VALUES_EQUAL(w.size(), 10);
+
+    TStringStream stream0;
+    stream0 << w;
+    UNIT_ASSERT_VALUES_EQUAL(stream0.Str(), s);
+
+    TStringStream stream1;
+    for (size_t i = 0; i < 10; i++) {
+        stream1 << w[i];
+    }
+    UNIT_ASSERT_VALUES_EQUAL(stream1.Str(), s);
 }

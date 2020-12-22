@@ -5,10 +5,11 @@
 #include "pathsplit.h"
 #include "path.h"
 
+#include <util/generic/yexception.h>
+#include <util/system/compiler.h>
 #include <util/system/fs.h>
 #include <util/system/maxlen.h>
 #include <util/system/yassert.h>
-#include <util/generic/yexception.h>
 
 void SlashFolderLocal(TString& folder) {
     if (!folder)
@@ -18,7 +19,7 @@ void SlashFolderLocal(TString& folder) {
     while ((pos = folder.find('/')) != TString::npos)
         folder.replace(pos, 1, LOCSLASH_S);
 #endif
-    if (folder[+folder - 1] != LOCSLASH_C)
+    if (folder[folder.size() - 1] != LOCSLASH_C)
         folder.append(LOCSLASH_S);
 }
 
@@ -40,10 +41,10 @@ bool resolvepath(TString& folder, const TString& home) {
 
     if (folder.at(0) == '~') {
         if (folder.length() == 1 || folder.at(1) == '/') {
-            folder = GetHomeDir() + (~folder + 1);
+            folder = GetHomeDir() + (folder.data() + 1);
         } else {
             char* buf = (char*)alloca(folder.length() + 1);
-            strcpy(buf, ~folder + 1);
+            strcpy(buf, folder.data() + 1);
             char* p = strchr(buf, '/');
             if (p)
                 *p++ = 0;
@@ -61,10 +62,10 @@ bool resolvepath(TString& folder, const TString& home) {
     int len = folder.length() + home.length() + 1;
     char* path = (char*)alloca(len);
     if (folder.at(0) != '/') {
-        strcpy(path, ~home);
-        strcpy(strrchr(path, '/') + 1, ~folder); // the last char must be '/' if it's a dir
+        strcpy(path, home.data());
+        strcpy(strrchr(path, '/') + 1, folder.data()); // the last char must be '/' if it's a dir
     } else {
-        strcpy(path, ~folder);
+        strcpy(path, folder.data());
     }
     len = strlen(path) + 1;
     // grabbed from url.cpp
@@ -348,8 +349,8 @@ int resolvepath(char* apath, const char* rpath, const char* cpath) {
 }
 
 bool correctpath(TString& filename) {
-    char* ptr = (char*)alloca(+filename + 2);
-    if (correctpath(ptr, ~filename)) {
+    char* ptr = (char*)alloca(filename.size() + 2);
+    if (correctpath(ptr, filename.data())) {
         filename = ptr;
         return true;
     }
@@ -357,8 +358,8 @@ bool correctpath(TString& filename) {
 }
 
 bool resolvepath(TString& folder, const TString& home) {
-    char* ptr = (char*)alloca(+folder + 3 + +home);
-    if (resolvepath(ptr, ~folder, ~home)) {
+    char* ptr = (char*)alloca(folder.size() + 3 + home.size());
+    if (resolvepath(ptr, folder.data(), home.data())) {
         folder = ptr;
         return true;
     }
@@ -378,9 +379,9 @@ const char* GetDirectorySeparatorS() {
 void RemoveDirWithContents(TString dirName) {
     SlashFolderLocal(dirName);
 
-    TDirIterator dir(dirName);
+    TDirIterator dir(dirName, TDirIterator::TOptions(FTS_NOSTAT));
 
-    for (TDirIterator::TIterator it = dir.Begin(); it != dir.End(); ++it) {
+    for (auto it = dir.begin(); it != dir.end(); ++it) {
         switch (it->fts_info) {
             case FTS_F:
             case FTS_DEFAULT:
@@ -405,9 +406,9 @@ TString RealPath(const TString& path) {
     TTempBuf result;
     Y_ASSERT(result.Size() > MAX_PATH); //TMP_BUF_LEN > MAX_PATH
 #ifdef _win_
-    if (GetFullPathName(~path, result.Size(), result.Data(), nullptr) == 0)
+    if (GetFullPathName(path.data(), result.Size(), result.Data(), nullptr) == 0)
 #else
-    if (realpath(~path, result.Data()) == nullptr)
+    if (realpath(path.data(), result.Data()) == nullptr)
 #endif
         ythrow TFileError() << "RealPath failed \"" << path << "\"";
     return result.Data();
@@ -418,7 +419,7 @@ TString RealLocation(const TString& path) {
         return RealPath(path);
     TString dirpath = GetDirName(path);
     if (NFs::Exists(dirpath))
-        return RealPath(dirpath) + GetDirectorySeparatorS() + GetFileNameComponent(~path);
+        return RealPath(dirpath) + GetDirectorySeparatorS() + GetFileNameComponent(path.data());
     ythrow TFileError() << "RealLocation failed \"" << path << "\"";
 }
 
@@ -433,7 +434,7 @@ int MakeTempDir(char path[/*FILENAME_MAX*/], const char* prefix) {
     if (!prefix) {
 #endif
         sysTmp = GetSystemTempDir();
-        prefix = ~sysTmp;
+        prefix = sysTmp.data();
     }
 
     if ((ret = ResolvePath(prefix, nullptr, path, 1)) != 0)
@@ -466,7 +467,12 @@ int RemoveTempDir(const char* dirName) {
         path[++len] = 0;
     }
     ptr = path + len;
+    // TODO(yazevnul|IGNIETFERRO-1070): remove these macroses by replacing `readdir_r` with proper
+    // alternative
+    Y_PRAGMA_DIAGNOSTIC_PUSH
+    Y_PRAGMA_NO_DEPRECATED
     while ((ret = readdir_r(dir, &ent, &pent)) == 0 && pent == &ent) {
+    Y_PRAGMA_DIAGNOSTIC_POP
         if (!strcmp(ent.d_name, ".") || !strcmp(ent.d_name, ".."))
             continue;
 #ifdef DT_DIR
@@ -505,7 +511,7 @@ TString GetHomeDir() {
         passwd* pw = nullptr;
         s = getenv("USER");
         if (s)
-            pw = getpwnam(~s);
+            pw = getpwnam(s.data());
         else
             pw = getpwuid(getuid());
         if (pw)
@@ -625,13 +631,13 @@ int ResolvePath(const char* rel, const char* abs, char res[/*MAXPATHLEN*/], bool
         t[len] = 0;
     }
     if (!realpath(t, res)) {
-        if (!isdir && realpath(~GetDirName(t), res)) {
+        if (!isdir && realpath(GetDirName(t).data(), res)) {
             len = strlen(res);
             if (res[len - 1] != LOCSLASH_C) {
                 res[len++] = LOCSLASH_C;
                 res[len] = 0;
             }
-            strcpy(res + len, ~GetBaseName(t));
+            strcpy(res + len, GetBaseName(t).data());
             return 0;
         }
         return errno ? errno : ENOENT;
@@ -646,11 +652,15 @@ int ResolvePath(const char* rel, const char* abs, char res[/*MAXPATHLEN*/], bool
     return 0;
 }
 
-TString ResolvePath(const char* path, bool isDir) {
+TString ResolvePath(const char* rel, const char* abs, bool isdir) {
     char buf[PATH_MAX];
-    if (ResolvePath(path, nullptr, buf, isDir))
-        ythrow yexception() << "cannot resolve path: \"" << path << "\"";
+    if (ResolvePath(rel, abs, buf, isdir))
+        ythrow yexception() << "cannot resolve path: \"" << rel << "\"";
     return buf;
+}
+
+TString ResolvePath(const char* path, bool isDir) {
+    return ResolvePath(path, nullptr, isDir);
 }
 
 TString StripFileComponent(const TString& fileName) {

@@ -1,10 +1,10 @@
 #include "format.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 #include <util/charset/wide.h>
 
-SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
-    SIMPLE_UNIT_TEST(TestLeftPad) {
+Y_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
+    Y_UNIT_TEST(TestLeftPad) {
         TStringStream ss;
         ss << LeftPad(10, 4, '0');
         UNIT_ASSERT_VALUES_EQUAL("0010", ss.Str());
@@ -14,7 +14,7 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL("222", ss.Str());
     }
 
-    SIMPLE_UNIT_TEST(TestRightPad) {
+    Y_UNIT_TEST(TestRightPad) {
         TStringStream ss;
         ss << RightPad("aa", 4);
         UNIT_ASSERT_VALUES_EQUAL("aa  ", ss.Str());
@@ -24,14 +24,14 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL("aa", ss.Str());
     }
 
-    SIMPLE_UNIT_TEST(TestTime) {
+    Y_UNIT_TEST(TestTime) {
         TStringStream ss;
 
         ss << "[" << Time << "] "
            << "qwqw" << TimeHumanReadable << Endl;
     }
 
-    SIMPLE_UNIT_TEST(TestHexReference) {
+    Y_UNIT_TEST(TestHexReference) {
         /*
             One possible implementation of Hex() stores a reference to the given object.
             This can lead to wrong results if the given object is a temporary
@@ -46,10 +46,10 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL("0x01234567", ss->Str());
     }
 
-    SIMPLE_UNIT_TEST(TestHexText) {
+    Y_UNIT_TEST(TestHexText) {
         {
             TStringStream ss;
-            ss << HexText(STRINGBUF("abcи"));
+            ss << HexText(TStringBuf("abcи"));
             UNIT_ASSERT_VALUES_EQUAL("61 62 63 D0 B8", ss.Str());
         }
         {
@@ -60,7 +60,7 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestBin) {
+    Y_UNIT_TEST(TestBin) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(Bin(static_cast<ui32>(2), nullptr)), "10");
         UNIT_ASSERT_VALUES_EQUAL(ToString(SBin(static_cast<i32>(-2), nullptr)), "-10");
         UNIT_ASSERT_VALUES_EQUAL(ToString(SBin(static_cast<i32>(-2))), "-0b00000000000000000000000000000010");
@@ -75,13 +75,13 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(Bin(static_cast<ui64>(1234587912357ull))), "0b0000000000000000000000010001111101110011001011001000100010100101");
     }
 
-    SIMPLE_UNIT_TEST(TestBinText) {
-        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(STRINGBUF("\1"))), "00000001");
-        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(STRINGBUF("\1\1"))), "00000001 00000001");
-        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(STRINGBUF("aaa"))), "01100001 01100001 01100001");
+    Y_UNIT_TEST(TestBinText) {
+        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(TStringBuf("\1"))), "00000001");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(TStringBuf("\1\1"))), "00000001 00000001");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(BinText(TStringBuf("aaa"))), "01100001 01100001 01100001");
     }
 
-    SIMPLE_UNIT_TEST(TestPrec) {
+    Y_UNIT_TEST(TestPrec) {
         TStringStream ss;
         ss << Prec(1.2345678901234567, PREC_AUTO);
         UNIT_ASSERT_VALUES_EQUAL("1.2345678901234567", ss.Str());
@@ -95,17 +95,25 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL("1.235", ss.Str());
     }
 
-    SIMPLE_UNIT_TEST(TestHumanReadableSize1000) {
+    Y_UNIT_TEST(TestHumanReadableSize1000) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(0, SF_QUANTITY)), "0");
+
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1, SF_QUANTITY)), "1");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000, SF_QUANTITY)), "1K");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1234567, SF_QUANTITY)), "1.23M");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(12345678, SF_QUANTITY)), "12.3M");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(12345678 * 1000ull, SF_QUANTITY)), "12.3G");
+
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1, SF_QUANTITY)), "-1");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000, SF_QUANTITY)), "-1K");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1234567, SF_QUANTITY)), "-1.23M");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-12345678, SF_QUANTITY)), "-12.3M");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-12345678 * 1000ll, SF_QUANTITY)), "-12.3G");
     }
 
-    SIMPLE_UNIT_TEST(TestHumanReadableSize1024) {
+    Y_UNIT_TEST(TestHumanReadableSize1024) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(0, SF_BYTES)), "0B");
+
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(100, SF_BYTES)), "100B");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1024, SF_BYTES)), "1KiB");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(2.25 * 1024 * 1024, SF_BYTES)), "2.25MiB");
@@ -116,10 +124,44 @@ SIMPLE_UNIT_TEST_SUITE(TOutputStreamFormattingTest) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1236 * 1024 * 1024, SF_BYTES)), "1.21GiB");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1024ull * 1024 * 1024 * 1024, SF_BYTES)), "1TiB");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(100 / 3., SF_BYTES)), "33.3B");
+
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-100, SF_BYTES)), "-100B");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1024, SF_BYTES)), "-1KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-2.25 * 1024 * 1024, SF_BYTES)), "-2.25MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-2.5 * 1024, SF_BYTES)), "-2.5KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-45.3 * 1024, SF_BYTES)), "-45.3KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1024 * 1024, SF_BYTES)), "-1MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-5 * 1024 * 1024, SF_BYTES)), "-5MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1236 * 1024 * 1024, SF_BYTES)), "-1.21GiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1024ll * 1024 * 1024 * 1024, SF_BYTES)), "-1TiB");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-100 / 3., SF_BYTES)), "-33.3B");
+
+        // XXX: For 1000 <= x < 1024, Prec(x, 3) falls back to exponential form
+
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000ll, SF_BYTES)), "1000B");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1010ll, SF_BYTES)), "1010B");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000ll * 1024, SF_BYTES)), "1000KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1010ll * 1024, SF_BYTES)), "1010KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000ll * 1024 * 1024, SF_BYTES)), "1000MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1010ll * 1024 * 1024, SF_BYTES)), "1010MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000ll * 1024 * 1024 * 1024, SF_BYTES)), "1000GiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1010ll * 1024 * 1024 * 1024, SF_BYTES)), "1010GiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1000ll * 1024 * 1024 * 1024 * 1024, SF_BYTES)), "1000TiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(1010ll * 1024 * 1024 * 1024 * 1024, SF_BYTES)), "1010TiB");
+
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000ll, SF_BYTES)), "-1000B");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1010ll, SF_BYTES)), "-1010B");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000ll * 1024, SF_BYTES)), "-1000KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1010ll * 1024, SF_BYTES)), "-1010KiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000ll * 1024 * 1024, SF_BYTES)), "-1000MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1010ll * 1024 * 1024, SF_BYTES)), "-1010MiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000ll * 1024 * 1024 * 1024, SF_BYTES)), "-1000GiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1010ll * 1024 * 1024 * 1024, SF_BYTES)), "-1010GiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1000ll * 1024 * 1024 * 1024 * 1024, SF_BYTES)), "-1000TiB");
+        UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadableSize(-1010ll * 1024 * 1024 * 1024 * 1024, SF_BYTES)), "-1010TiB");
     }
 
-    SIMPLE_UNIT_TEST(TestHumanReadableDuration) {
+    Y_UNIT_TEST(TestHumanReadableDuration) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadable(TDuration::MicroSeconds(0))), "0us");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadable(TDuration::MicroSeconds(1))), "1us");
         UNIT_ASSERT_VALUES_EQUAL(ToString(HumanReadable(TDuration::MicroSeconds(100))), "100us");

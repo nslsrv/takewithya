@@ -1,7 +1,7 @@
 #pragma once
 
-#include "output.h"
 #include "zerocopy.h"
+#include "zerocopy_output.h"
 
 #include <util/generic/ptr.h>
 
@@ -15,7 +15,7 @@ class TBuffer;
 /**
  * Output stream that writes into a `TBuffer`.
  */
-class TBufferOutput: public TOutputStream {
+class TBufferOutput: public IZeroCopyOutput {
 public:
     class TImpl;
 
@@ -46,7 +46,10 @@ public:
     TBuffer& Buffer() const noexcept;
 
 private:
+    size_t DoNext(void** ptr) override;
+    void DoUndo(size_t len) override;
     void DoWrite(const void* buf, size_t len) override;
+    void DoWriteC(char c) override;
 
 private:
     THolder<TImpl> Impl_;
@@ -55,7 +58,7 @@ private:
 /**
  * Input stream that reads from an external `TBuffer`.
  */
-class TBufferInput: public TZeroCopyInputFastReadTo {
+class TBufferInput: public IZeroCopyInputFastReadTo {
 public:
     /**
      * Constructs a stream that reads from an external buffer. It's up to the

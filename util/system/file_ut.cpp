@@ -1,10 +1,11 @@
 #include "file.h"
 #include "fs.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/stream/file.h>
 #include "tempfile.h"
+#include "mktemp.h"
 #include <util/generic/yexception.h>
 
 class TFileTest: public TTestBase {
@@ -19,6 +20,11 @@ class TFileTest: public TTestBase {
     UNIT_TEST(TestLocale);
     UNIT_TEST(TestFlush);
     UNIT_TEST(TestFlushSpecialFile);
+    UNIT_TEST(TestRawRead);
+    UNIT_TEST(TestRead);
+    UNIT_TEST(TestRawPread);
+    UNIT_TEST(TestPread);
+    UNIT_TEST(TestCache);
     UNIT_TEST_SUITE_END();
 
 public:
@@ -28,6 +34,11 @@ public:
     void TestLocale();
     void TestFlush();
     void TestFlushSpecialFile();
+    void TestRawRead();
+    void TestRead();
+    void TestRawPread();
+    void TestPread();
+    void TestCache();
 
     inline void TestLinkTo() {
         TTempFile tmp1("tmp1");
@@ -43,7 +54,7 @@ public:
             f2.Write("67890", 5);
         }
 
-        UNIT_ASSERT_EQUAL(TFileInput(tmp2.Name()).ReadAll(), "1234567890");
+        UNIT_ASSERT_EQUAL(TUnbufferedFileInput(tmp2.Name()).ReadAll(), "1234567890");
     }
 
     inline void TestAppend() {
@@ -62,7 +73,7 @@ public:
             f.Write("89", 2);
         }
 
-        UNIT_ASSERT_EQUAL(TFileInput(tmp.Name()).ReadAll(), "123456786789");
+        UNIT_ASSERT_EQUAL(TUnbufferedFileInput(tmp.Name()).ReadAll(), "123456786789");
     }
 
     inline void TestReWrite() {
@@ -80,7 +91,7 @@ public:
             f.Write("6789", 4);
         }
 
-        UNIT_ASSERT_EQUAL(TFileInput(tmp.Name()).ReadAll(), "67895678");
+        UNIT_ASSERT_EQUAL(TUnbufferedFileInput(tmp.Name()).ReadAll(), "67895678");
     }
 
     inline void TestResize() {
@@ -101,7 +112,7 @@ public:
             UNIT_ASSERT_EQUAL(file.GetPosition(), 3);
         }
 
-        const TString data = TFileInput(tmp.Name()).ReadAll();
+        const TString data = TUnbufferedFileInput(tmp.Name()).ReadAll();
         UNIT_ASSERT_EQUAL(data.length(), 12);
         UNIT_ASSERT(data.StartsWith("12345"));
     }
@@ -229,12 +240,179 @@ void TFileTest::TestFlushSpecialFile() {
 #endif
 }
 
-SIMPLE_UNIT_TEST_SUITE(TTestDecodeOpenMode) {
-    SIMPLE_UNIT_TEST(It) {
+void TFileTest::TestRawRead() {
+    TTempFile tmp("tmp");
+
+    {
+        TFile file(tmp.Name(), OpenAlways | WrOnly);
+        file.Write("1234567", 7);
+        file.Flush();
+        file.Close();
+    }
+
+    {
+        TFile file(tmp.Name(), OpenExisting | RdOnly);
+        char buf[7];
+        i32 reallyRead = file.RawRead(buf, 7);
+        Y_ENSURE(0 <= reallyRead && reallyRead <= 7);
+        Y_ENSURE(TStringBuf(buf, reallyRead) == TStringBuf("1234567").Head(reallyRead));
+    }
+}
+
+void TFileTest::TestRead() {
+    TTempFile tmp("tmp");
+
+    {
+        TFile file(tmp.Name(), OpenAlways | WrOnly);
+        file.Write("1234567", 7);
+        file.Flush();
+        file.Close();
+    }
+
+    {
+        TFile file(tmp.Name(), OpenExisting | RdOnly);
+        char buf[7];
+        Y_ENSURE(file.Read(buf, 7) == 7);
+        Y_ENSURE(TStringBuf(buf, 7) == "1234567");
+
+        memset(buf, 0, sizeof(buf));
+        file.Seek(0, sSet);
+        Y_ENSURE(file.Read(buf, 123) == 7);
+        Y_ENSURE(TStringBuf(buf, 7) == "1234567");
+    }
+}
+
+void TFileTest::TestRawPread() {
+    TTempFile tmp("tmp");
+
+    {
+        TFile file(tmp.Name(), OpenAlways | WrOnly);
+        file.Write("1234567", 7);
+        file.Flush();
+        file.Close();
+    }
+
+    {
+        TFile file(tmp.Name(), OpenExisting | RdOnly);
+        char buf[7];
+        i32 reallyRead = file.RawPread(buf, 3, 1);
+        Y_ENSURE(0 <= reallyRead && reallyRead <= 3);
+        Y_ENSURE(TStringBuf(buf, reallyRead) == TStringBuf("234").Head(reallyRead));
+
+        memset(buf, 0, sizeof(buf));
+        reallyRead = file.RawPread(buf, 2, 5);
+        Y_ENSURE(0 <= reallyRead && reallyRead <= 2);
+        Y_ENSURE(TStringBuf(buf, reallyRead) == TStringBuf("67").Head(reallyRead));
+    }
+}
+
+void TFileTest::TestPread() {
+    TTempFile tmp("tmp");
+
+    {
+        TFile file(tmp.Name(), OpenAlways | WrOnly);
+        file.Write("1234567", 7);
+        file.Flush();
+        file.Close();
+    }
+
+    {
+        TFile file(tmp.Name(), OpenExisting | RdOnly);
+        char buf[7];
+        Y_ENSURE(file.Pread(buf, 3, 1) == 3);
+        Y_ENSURE(TStringBuf(buf, 3) == "234");
+
+        memset(buf, 0, sizeof(buf));
+        Y_ENSURE(file.Pread(buf, 2, 5) == 2);
+        Y_ENSURE(TStringBuf(buf, 2) == "67");
+    }
+}
+
+#ifdef _linux_
+#include <sys/statfs.h>
+#endif
+
+#ifndef TMPFS_MAGIC
+#define TMPFS_MAGIC 0x01021994
+#endif
+
+void TFileTest::TestCache() {
+#ifdef _linux_
+    {
+        // create file in /tmp, current dir could be tmpfs which does not support fadvise
+        TFile file(MakeTempName("/tmp"), OpenAlways | Transient | RdWr | NoReadAhead);
+
+        struct statfs fs;
+        if (!fstatfs(file.GetHandle(), &fs) && fs.f_type == TMPFS_MAGIC)
+            return;
+
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 0);
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(0, 0), 0);
+
+        file.Resize(7);
+        file.PrefetchCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 7);
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(3, 2), 2);
+
+        file.FlushCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 7);
+
+        file.EvictCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 0);
+
+        file.PrefetchCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 7);
+
+        file.Resize(12345);
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 4096);
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(4096, 0), 0);
+
+        file.PrefetchCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 12345);
+
+        file.FlushCache();
+        file.EvictCache();
+        UNIT_ASSERT_LE(file.CountCache(), 0);
+
+        file.Resize(33333333);
+        file.PrefetchCache(11111111, 11111111);
+        UNIT_ASSERT_GE(file.CountCache(), 11111111);
+
+        UNIT_ASSERT_LE(file.CountCache(0, 11111111), 1111111);
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(11111111, 11111111), 11111111);
+        UNIT_ASSERT_LE(file.CountCache(22222222, 11111111), 1111111);
+
+        file.FlushCache(11111111, 11111111);
+        UNIT_ASSERT_GE(file.CountCache(), 11111111);
+
+        // first and last incomplete pages could stay in cache
+        file.EvictCache(11111111, 11111111);
+        UNIT_ASSERT_LT(file.CountCache(11111111, 11111111), 4096 * 2);
+
+        file.EvictCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), 0);
+    }
+#else
+    {
+        TFile file(MakeTempName(), OpenAlways | Transient | RdWr);
+
+        file.Resize(12345);
+
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(), -1);
+        file.PrefetchCache();
+        file.FlushCache();
+        file.EvictCache();
+        UNIT_ASSERT_VALUES_EQUAL(file.CountCache(0, 12345), -1);
+    }
+#endif
+}
+
+Y_UNIT_TEST_SUITE(TTestDecodeOpenMode) {
+    Y_UNIT_TEST(It) {
         UNIT_ASSERT_VALUES_EQUAL("0", DecodeOpenMode(0));
         UNIT_ASSERT_VALUES_EQUAL("RdOnly", DecodeOpenMode(RdOnly));
         UNIT_ASSERT_VALUES_EQUAL("RdWr", DecodeOpenMode(RdWr));
         UNIT_ASSERT_VALUES_EQUAL("WrOnly|ForAppend", DecodeOpenMode(WrOnly | ForAppend));
-        UNIT_ASSERT_VALUES_EQUAL("RdWr|CreateNew|AX|AR|AW|CreateAlways|Seq|Direct|Temp|ForAppend|Transient|DirectAligned|AWOther|0xF888EC00", DecodeOpenMode(0xFFFFFFFF));
+        UNIT_ASSERT_VALUES_EQUAL("RdWr|CreateAlways|CreateNew|ForAppend|Transient|CloseOnExec|Temp|Sync|Direct|DirectAligned|Seq|NoReuse|NoReadAhead|AX|AR|AW|AWOther|0xF8888000", DecodeOpenMode(0xFFFFFFFF));
     }
 }

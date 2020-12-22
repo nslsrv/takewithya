@@ -49,8 +49,6 @@ int poll(struct pollfd fds[], nfds_t nfds, int timeout) noexcept;
 
 int inet_aton(const char* cp, struct in_addr* inp);
 
-size_t writev(SOCKET s, const struct iovec* iov, int iovcnt);
-
 #define get_host_error() WSAGetLastError()
 
 #define SHUT_RD SD_RECEIVE
@@ -120,9 +118,18 @@ int GetSocketToS(SOCKET s);
 int GetSocketToS(SOCKET s, const NAddr::IRemoteAddr* addr);
 void SetTcpFastOpen(SOCKET s, int qlen);
 /**
+ * Useful for keep-alive connections.
+ **/
+bool IsNotSocketClosedByOtherSide(SOCKET s);
+/**
  * Determines whether connection on socket is local (same machine) or not.
  **/
 bool HasLocalAddress(SOCKET socket);
+
+/**
+ * Runtime check if current kernel supports SO_REUSEPORT option.
+ **/
+extern "C" bool IsReusePortAvailable();
 
 bool IsNonBlock(SOCKET fd);
 void SetNonBlock(SOCKET fd, bool nonBlock = true);
@@ -133,6 +140,16 @@ class TNetworkResolutionError: public yexception {
 public:
     // @param error error code (EAI_XXX) returned by getaddrinfo or getnameinfo (not errno)
     TNetworkResolutionError(int error);
+};
+
+struct TUnixSocketPath {
+    TString Path;
+
+    // Constructor for create unix domain socket path from string with path in filesystem
+    // TUnixSocketPath("/tmp/unixsocket") -> "/tmp/unixsocket"
+    explicit TUnixSocketPath(const TString& path)
+        : Path(path)
+    {}
 };
 
 class TNetworkAddress {
@@ -187,6 +204,7 @@ public:
     TNetworkAddress(ui16 port);
     TNetworkAddress(const TString& host, ui16 port);
     TNetworkAddress(const TString& host, ui16 port, int flags);
+    TNetworkAddress(const TUnixSocketPath& unixSocketPath, int flags = 0);
     ~TNetworkAddress();
 
     inline TIterator Begin() const noexcept {
@@ -207,7 +225,7 @@ private:
 
 class TSocket;
 
-class TSocketHolder: public TNonCopyable {
+class TSocketHolder: public TMoveOnly {
 public:
     inline TSocketHolder()
         : Fd_(INVALID_SOCKET)
@@ -217,6 +235,18 @@ public:
     inline TSocketHolder(SOCKET fd)
         : Fd_(fd)
     {
+    }
+
+    inline TSocketHolder(TSocketHolder&& other) noexcept {
+        Fd_ = other.Fd_;
+        other.Fd_ = INVALID_SOCKET;
+    }
+
+    inline TSocketHolder& operator=(TSocketHolder&& other) noexcept {
+        Close();
+        Swap(other);
+
+        return *this;
     }
 
     inline ~TSocketHolder() {
@@ -256,7 +286,7 @@ private:
 
 class TSocket {
 public:
-    using TPart = TOutputStream::TPart;
+    using TPart = IOutputStream::TPart;
 
     class TOps {
     public:
@@ -326,6 +356,8 @@ public:
         ::ShutDown(Fd(), mode);
     }
 
+    void Close();
+
     ssize_t Send(const void* data, size_t len);
     ssize_t Recv(void* buf, size_t len);
 
@@ -346,7 +378,7 @@ private:
     TSimpleIntrusivePtr<TImpl> Impl_;
 };
 
-class TSocketInput: public TInputStream {
+class TSocketInput: public IInputStream {
 public:
     TSocketInput(const TSocket& s) noexcept;
     ~TSocketInput() override;
@@ -365,7 +397,7 @@ private:
     TSocket S_;
 };
 
-class TSocketOutput: public TOutputStream {
+class TSocketOutput: public IOutputStream {
 public:
     TSocketOutput(const TSocket& s) noexcept;
     ~TSocketOutput() override;

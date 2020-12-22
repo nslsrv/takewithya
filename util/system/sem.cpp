@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 
-#if defined(_bionic_)
+#if defined(_bionic_) || defined(_darwin_) && defined(_arm_)
 #include <fcntl.h>
 #else
 #define USE_SYSV_SEMAPHORES //unixoids declared the standard but not implemented it...
@@ -168,6 +168,13 @@ namespace {
     };
 
 #if defined(_unix_)
+/*
+    Disable errors/warnings about deprecated sem_* in Darwin
+*/
+#ifdef _darwin_
+Y_PRAGMA_DIAGNOSTIC_PUSH
+Y_PRAGMA_NO_DEPRECATED
+#endif
     struct TPosixSemaphore {
         inline TPosixSemaphore(ui32 maxFreeCount) {
             if (sem_init(&S_, 0, maxFreeCount)) {
@@ -199,6 +206,9 @@ namespace {
 
         sem_t S_;
     };
+#ifdef _darwin_
+Y_PRAGMA_DIAGNOSTIC_POP
+#endif
 #endif
 }
 
@@ -229,7 +239,7 @@ bool TSemaphore::TryAcquire() noexcept {
     return Impl_->TryAcquire();
 }
 
-#if defined(_unix_)
+#if defined(_unix_) && !defined(_darwin_)
 class TFastSemaphore::TImpl: public TPosixSemaphore {
 public:
     inline TImpl(ui32 n)

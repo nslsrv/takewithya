@@ -1,4 +1,4 @@
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include "algorithm.h"
 #include "hash.h"
@@ -9,7 +9,7 @@
 #include "strbuf.h"
 #include "string.h"
 
-SIMPLE_UNIT_TEST_SUITE(TIsIn) {
+Y_UNIT_TEST_SUITE(TIsIn) {
     template <class TCont, class T>
     void TestIsInWithCont(const T& elem) {
         class TMapMock: public TCont {
@@ -40,19 +40,19 @@ SIMPLE_UNIT_TEST_SUITE(TIsIn) {
         m.FindCalled = 0;
     }
 
-    SIMPLE_UNIT_TEST(IsInTest) {
-        TestIsInWithCont<ymap<TString, TString>>(std::make_pair("found", "1"));
-        TestIsInWithCont<ymultimap<TString, TString>>(std::make_pair("found", "1"));
-        TestIsInWithCont<yhash<TString, TString>>(std::make_pair("found", "1"));
-        TestIsInWithCont<yhash_mm<TString, TString>>(std::make_pair("found", "1"));
+    Y_UNIT_TEST(IsInTest) {
+        TestIsInWithCont<TMap<TString, TString>>(std::make_pair("found", "1"));
+        TestIsInWithCont<TMultiMap<TString, TString>>(std::make_pair("found", "1"));
+        TestIsInWithCont<THashMap<TString, TString>>(std::make_pair("found", "1"));
+        TestIsInWithCont<THashMultiMap<TString, TString>>(std::make_pair("found", "1"));
 
-        TestIsInWithCont<yset<TString>>("found");
-        TestIsInWithCont<ymultiset<TString>>("found");
-        TestIsInWithCont<yhash_set<TString>>("found");
-        TestIsInWithCont<yhash_multiset<TString>>("found");
+        TestIsInWithCont<TSet<TString>>("found");
+        TestIsInWithCont<TMultiSet<TString>>("found");
+        TestIsInWithCont<THashSet<TString>>("found");
+        TestIsInWithCont<THashMultiSet<TString>>("found");
 
         // vector also compiles and works
-        yvector<TString> v;
+        TVector<TString> v;
         v.push_back("found");
         UNIT_ASSERT(IsIn(v, "found"));
         UNIT_ASSERT(!IsIn(v, "not found"));
@@ -71,7 +71,7 @@ SIMPLE_UNIT_TEST_SUITE(TIsIn) {
         UNIT_ASSERT(!IsIn(b, 'z'));
     }
 
-    SIMPLE_UNIT_TEST(IsInInitListTest) {
+    Y_UNIT_TEST(IsInInitListTest) {
         const char* abc = "abc";
         const char* def = "def";
 
@@ -81,27 +81,36 @@ SIMPLE_UNIT_TEST_SUITE(TIsIn) {
         UNIT_ASSERT(IsIn({6}, 6));
         UNIT_ASSERT(!IsIn({6}, 7));
         UNIT_ASSERT(!IsIn(std::initializer_list<int>(), 6));
-        UNIT_ASSERT(IsIn({STRINGBUF("abc"), STRINGBUF("def")}, STRINGBUF("abc")));
-        UNIT_ASSERT(IsIn({STRINGBUF("abc"), STRINGBUF("def")}, STRINGBUF("def")));
-        UNIT_ASSERT(IsIn({"abc", "def"}, STRINGBUF("def")));
+        UNIT_ASSERT(IsIn({TStringBuf("abc"), TStringBuf("def")}, TStringBuf("abc")));
+        UNIT_ASSERT(IsIn({TStringBuf("abc"), TStringBuf("def")}, TStringBuf("def")));
+        UNIT_ASSERT(IsIn({"abc", "def"}, TStringBuf("def")));
         UNIT_ASSERT(IsIn({abc, def}, def)); // direct pointer comparison
-        UNIT_ASSERT(!IsIn({STRINGBUF("abc"), STRINGBUF("def")}, STRINGBUF("ghi")));
-        UNIT_ASSERT(!IsIn({"abc", "def"}, STRINGBUF("ghi")));
+        UNIT_ASSERT(!IsIn({TStringBuf("abc"), TStringBuf("def")}, TStringBuf("ghi")));
+        UNIT_ASSERT(!IsIn({"abc", "def"}, TStringBuf("ghi")));
         UNIT_ASSERT(!IsIn({"abc", "def"}, TString("ghi")));
 
         const TStringBuf str = "abc////";
 
-        UNIT_ASSERT(IsIn({"abc", "def"}, TStringBuf{~str, 3}));
+        UNIT_ASSERT(IsIn({"abc", "def"}, TStringBuf{str.data(), 3}));
     }
 
-    SIMPLE_UNIT_TEST(ConfOfTest) {
+    Y_UNIT_TEST(ConfOfTest) {
         UNIT_ASSERT(IsIn({1, 2, 3}, 1));
         UNIT_ASSERT(!IsIn({1, 2, 3}, 4));
 
         const TString b = "b";
 
-        UNIT_ASSERT(!IsIn({"a", "b", "c"}, ~b)); // compares pointers by value. Whether it's good or not.
-        UNIT_ASSERT(IsIn(yvector<TStringBuf>({"a", "b", "c"}), ~b));
-        UNIT_ASSERT(IsIn(yvector<TStringBuf>({"a", "b", "c"}), "b"));
+        UNIT_ASSERT(!IsIn({"a", "b", "c"}, b.data())); // compares pointers by value. Whether it's good or not.
+        UNIT_ASSERT(IsIn(TVector<TStringBuf>({"a", "b", "c"}), b.data()));
+        UNIT_ASSERT(IsIn(TVector<TStringBuf>({"a", "b", "c"}), "b"));
+    }
+
+    Y_UNIT_TEST(IsInArrayTest) {
+        const TString array[] = { "a", "b", "d" };
+
+        UNIT_ASSERT(IsIn(array, "a"));
+        UNIT_ASSERT(IsIn(array, TString("b")));
+        UNIT_ASSERT(!IsIn(array, "c"));
+        UNIT_ASSERT(IsIn(array, TStringBuf("d")));
     }
 }

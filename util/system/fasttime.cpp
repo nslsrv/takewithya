@@ -3,7 +3,6 @@
 
 #include <util/generic/singleton.h>
 #include <util/generic/yexception.h>
-#include <util/generic/reinterpretcast.h>
 #include <utility>
 
 #include <util/thread/singleton.h>
@@ -34,17 +33,17 @@ namespace {
         inline TSymbols()
             : Func(nullptr)
         {
-            // not DEFAULT, cause library/gettimeofday
-            Func = ReinterpretCast<TFunc>(dlsym(RTLD_NEXT, "gettimeofday"));
+            // not DEFAULT, cause library/cpp/gettimeofday
+            Func = reinterpret_cast<TFunc>(dlsym(RTLD_NEXT, "gettimeofday"));
 
 #if defined(_musl_)
             if (!Func) {
-                Func = ReinterpretCast<TFunc>(NVdso::Function("__vdso_gettimeofday", "LINUX_2.6"));
+                Func = reinterpret_cast<TFunc>(NVdso::Function("__vdso_gettimeofday", "LINUX_2.6"));
             }
 #endif
 
             if (!Func) {
-                Func = ReinterpretCast<TFunc>(Libc()->Sym("gettimeofday"));
+                Func = reinterpret_cast<TFunc>(Libc()->Sym("gettimeofday"));
             }
         }
 
@@ -58,7 +57,7 @@ namespace {
             return (((TTime)1000000) * (TTime)tv.tv_sec) + (TTime)tv.tv_usec;
         }
 
-        static inline TAutoPtr<TDynamicLibrary> OpenLibc() {
+        static inline THolder<TDynamicLibrary> OpenLibc() {
             const char* libs[] = {
                 "/lib/libc.so.8",
                 "/lib/libc.so.7",
@@ -67,8 +66,9 @@ namespace {
 
             for (auto& lib : libs) {
                 try {
-                    return new TDynamicLibrary(lib);
+                    return MakeHolder<TDynamicLibrary>(lib);
                 } catch (...) {
+                    // ¯\_(ツ)_/¯
                 }
             }
 
@@ -83,7 +83,7 @@ namespace {
             return Lib.Get();
         }
 
-        TAutoPtr<TDynamicLibrary> Lib;
+        THolder<TDynamicLibrary> Lib;
         TFunc Func;
     };
 
@@ -136,7 +136,9 @@ namespace {
 
         inline void Add(const TSample& s) noexcept {
             S_[(C_++) % N] = s;
-            ReCalc();
+            if (C_ > 1) {
+                ReCalc();
+            }
         }
 
         inline B Predict(A a) const noexcept {

@@ -1,4 +1,8 @@
-LIBRARY()  # TODO: switch to PROTO_LIBRARY DEVTOOLS-3496 
+PROTO_LIBRARY()
+
+LICENSE(
+    BSD
+)
 
 
 
@@ -21,5 +25,6 @@ SRCS(
     Scaler.proto
     TreeEnsemble.proto
 )
+EXCLUDE_TAGS(JAVA_PROTO)
 
 END()

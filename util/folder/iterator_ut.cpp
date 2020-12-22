@@ -1,7 +1,7 @@
 #include "dirut.h"
 #include "iterator.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/system/fs.h>
 #include <util/system/file.h>
@@ -9,7 +9,7 @@
 #include <util/generic/algorithm.h>
 #include <util/random/mersenne.h>
 
-static TString JoinWithNewline(const yvector<TString>& strings) {
+static TString JoinWithNewline(const TVector<TString>& strings) {
     TStringStream ss;
     for (const auto& string : strings) {
         ss << string << "\n";
@@ -22,6 +22,7 @@ class TDirIteratorTest: public TTestBase {
     UNIT_TEST(TestIt)
     UNIT_TEST(TestError)
     UNIT_TEST(TestLocal)
+    UNIT_TEST(TestSkip)
     UNIT_TEST(TestSort)
     UNIT_TEST_SUITE_END();
 
@@ -55,11 +56,11 @@ private:
                     break;
 
                 case 1:
-                    MakeDirIfNotExist(~path.Path);
+                    MakeDirIfNotExist(path.Path.data());
                     break;
 
                 case 2:
-                    ythrow yexception() << "shit happen";
+                    ythrow yexception() << "unknown path type";
             }
 
             Paths_.push_back(path);
@@ -67,7 +68,7 @@ private:
         }
 
         inline int Type(const TString& path) {
-            yhash<TString, TPath>::const_iterator it = Srch_.find(path);
+            THashMap<TString, TPath>::const_iterator it = Srch_.find(path);
 
             UNIT_ASSERT(it != Srch_.end());
 
@@ -85,14 +86,14 @@ private:
         }
 
     private:
-        yvector<TPath> Paths_;
-        yhash<TString, TPath> Srch_;
+        TVector<TPath> Paths_;
+        THashMap<TString, TPath> Srch_;
     };
 
     inline void TestLocal() {
         TString dirname("." LOCSLASH_S);
         TDirIterator d(dirname, FTS_NOCHDIR);
-        for (TDirIterator::TIterator it = d.Begin(); it != d.End(); ++it) {
+        for (auto it = d.begin(); it != d.end(); ++it) {
         }
     }
 
@@ -128,8 +129,47 @@ private:
 
         TDirIterator d(dir);
 
-        for (TDirIterator::TIterator it = d.Begin(); it != d.End(); ++it) {
+        for (auto it = d.begin(); it != d.end(); ++it) {
             UNIT_ASSERT(hier.Have(it->fts_path, it->fts_info != FTS_F));
+        }
+    }
+
+    inline void TestSkip() {
+        TDirHier hier;
+
+        const TString dir = "tmpdir";
+        const TDirHier::TPath path = {dir, 1};
+
+        hier.Add(path);
+        hier.AddDir(dir + LOCSLASH_C + "dir1");
+        hier.AddDir(dir + LOCSLASH_C + "dir1" + LOCSLASH_C + "dir2");
+        //
+        // Without skip
+        //
+        {
+            TDirIterator di(dir);
+
+            UNIT_ASSERT(di.Next());
+            UNIT_ASSERT_EQUAL(TStringBuf(di.Next()->fts_name), "dir1");
+            UNIT_ASSERT_EQUAL(TStringBuf(di.Next()->fts_name), "dir2");
+            UNIT_ASSERT_EQUAL(TStringBuf(di.Next()->fts_name), "dir2");
+            UNIT_ASSERT_EQUAL(TStringBuf(di.Next()->fts_name), "dir1");
+            UNIT_ASSERT(di.Next());
+            UNIT_ASSERT_EQUAL(di.Next(), nullptr);
+        }
+        //
+        // With skip
+        //
+        {
+            TDirIterator di(dir);
+
+            UNIT_ASSERT(di.Next());
+            auto ent = di.Next();
+            UNIT_ASSERT_EQUAL(TStringBuf(ent->fts_name), "dir1");
+            di.Skip(ent);
+            UNIT_ASSERT_EQUAL(TStringBuf(di.Next()->fts_name), "dir1");
+            UNIT_ASSERT(di.Next());
+            UNIT_ASSERT_EQUAL(di.Next(), nullptr);
         }
     }
 
@@ -152,19 +192,19 @@ private:
             }
         }
 
-        yvector<TString> fnames;
+        TVector<TString> fnames;
 
         {
             TDirIterator d(dir, TDirIterator::TOptions().SetSortByName());
 
-            for (TDirIterator::TIterator it = d.Begin(); it != d.End(); ++it) {
+            for (auto it = d.begin(); it != d.end(); ++it) {
                 if (it->fts_info == FTS_F) {
                     fnames.push_back(it->fts_name);
                 }
             }
         }
 
-        yvector<TString> sorted(fnames);
+        TVector<TString> sorted(fnames);
         Sort(sorted.begin(), sorted.end());
 
         UNIT_ASSERT_VALUES_EQUAL(JoinWithNewline(fnames), JoinWithNewline(sorted));

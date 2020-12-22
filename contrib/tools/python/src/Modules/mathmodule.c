@@ -379,9 +379,8 @@ m_lgamma(double x)
    Implementations of the error function erf(x) and the complementary error
    function erfc(x).
 
-   Method: following 'Numerical Recipes' by Flannery, Press et. al. (2nd ed.,
-   Cambridge University Press), we use a series approximation for erf for
-   small x, and a continued fraction approximation for erfc(x) for larger x;
+   Method: we use a series approximation for erf for small x, and a continued
+   fraction approximation for erfc(x) for larger x;
    combined with the relations erf(-x) = -erf(x) and erfc(x) = 1.0 - erf(x),
    this gives us erf(x) and erfc(x) for all x.
 
@@ -1189,7 +1188,7 @@ math_ldexp(PyObject *self, PyObject *args)
     if (! PyArg_ParseTuple(args, "dO:ldexp", &x, &oexp))
         return NULL;
 
-    if (PyLong_Check(oexp) || PyInt_Check(oexp)) {
+    if (_PyAnyInt_Check(oexp)) {
         /* on overflow, replace exponent with either LONG_MAX
            or LONG_MIN, depending on the sign. */
         exp = PyLong_AsLongAndOverflow(oexp, &overflow);

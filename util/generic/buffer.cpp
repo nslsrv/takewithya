@@ -1,6 +1,7 @@
-#include "ymath.h"
-#include "string.h"
 #include "buffer.h"
+#include "mem_copy.h"
+#include "string.h"
+#include "ymath.h"
 
 #include <util/system/sys_alloc.h>
 #include <util/system/sanitizers.h>
@@ -50,7 +51,7 @@ void TBuffer::Append(const char* buf, size_t len) {
 
     Y_ASSERT(len <= Avail());
 
-    memcpy(Data() + Pos_, buf, len);
+    MemCopy(Data() + Pos_, buf, len);
     NSan::Unpoison(Data() + Pos_, len);
     Pos_ += len;
 

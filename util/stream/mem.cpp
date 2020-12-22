@@ -15,8 +15,8 @@ TMemoryInput::TMemoryInput(const void* buf, size_t len) noexcept
 }
 
 TMemoryInput::TMemoryInput(const TStringBuf buf) noexcept
-    : Buf_(~buf)
-    , Len_(+buf)
+    : Buf_(buf.data())
+    , Len_(buf.size())
 {
 }
 
@@ -38,10 +38,28 @@ void TMemoryInput::DoUndo(size_t len) {
 
 TMemoryOutput::~TMemoryOutput() = default;
 
+size_t TMemoryOutput::DoNext(void** ptr) {
+    Y_ENSURE(Buf_ < End_, TStringBuf("memory output stream exhausted"));
+    *ptr = Buf_;
+    size_t bufferSize = End_ - Buf_;
+    Buf_ = End_;
+
+    return bufferSize;
+}
+
+void TMemoryOutput::DoUndo(size_t len) {
+    Buf_ -= len;
+}
+
 void TMemoryOutput::DoWrite(const void* buf, size_t len) {
     char* end = Buf_ + len;
-    Y_ENSURE(end <= End_, STRINGBUF("memory output stream exhausted"));
+    Y_ENSURE(end <= End_, TStringBuf("memory output stream exhausted"));
 
     memcpy(Buf_, buf, len);
     Buf_ = end;
+}
+
+void TMemoryOutput::DoWriteC(char c) {
+    Y_ENSURE(Buf_ < End_, TStringBuf("memory output stream exhausted"));
+    *Buf_++ = c;
 }

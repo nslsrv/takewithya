@@ -35,14 +35,14 @@
 
 #include <memory>
 #ifndef _SHARED_PTR_H
-#include "stubs/shared_ptr.h"
+#error #include <google/protobuf/stubs/shared_ptr.h>
 #endif
 
-#include "stubs/common.h"
-#include <contrib/libs/protobuf/stubs/logging.h>
-#include "descriptor.h"
-#include "dynamic_message.h"
-#include "message.h"
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/message.h>
 #include "pyext/descriptor.h"
 #include "pyext/descriptor_pool.h"
 #include "pyext/message.h"
@@ -305,10 +305,12 @@ static PyObject* Subscript(RepeatedScalarContainer* self, PyObject* slice) {
     length = Len(self);
 #if PY_MAJOR_VERSION >= 3
     if (PySlice_GetIndicesEx(slice,
+                             length, &from, &to, &step, &slicelength) == -1) {
 #else
     if (PySlice_GetIndicesEx(reinterpret_cast<PySliceObject*>(slice),
-#endif
                              length, &from, &to, &step, &slicelength) == -1) {
+
+#endif
       return NULL;
     }
     return_list = true;
@@ -458,10 +460,11 @@ static int AssSubscript(RepeatedScalarContainer* self,
     length = reflection->FieldSize(*message, field_descriptor);
 #if PY_MAJOR_VERSION >= 3
     if (PySlice_GetIndicesEx(slice,
+                             length, &from, &to, &step, &slicelength) == -1) {
 #else
     if (PySlice_GetIndicesEx(reinterpret_cast<PySliceObject*>(slice),
-#endif
                              length, &from, &to, &step, &slicelength) == -1) {
+#endif
       return -1;
     }
     create_list = true;
@@ -656,6 +659,18 @@ static PyObject* Pop(RepeatedScalarContainer* self,
   return item;
 }
 
+static PyObject* ToStr(RepeatedScalarContainer* self) {
+  ScopedPyObjectPtr full_slice(PySlice_New(NULL, NULL, NULL));
+  if (full_slice == NULL) {
+    return NULL;
+  }
+  ScopedPyObjectPtr list(Subscript(self, full_slice.get()));
+  if (list == NULL) {
+    return NULL;
+  }
+  return PyObject_Repr(list.get());
+}
+
 // The private constructor of RepeatedScalarContainer objects.
 PyObject *NewContainer(
     CMessage* parent, const FieldDescriptor* parent_field_descriptor) {
@@ -778,7 +793,7 @@ PyTypeObject RepeatedScalarContainer_Type = {
   0,                                   //  tp_getattr
   0,                                   //  tp_setattr
   0,                                   //  tp_compare
-  0,                                   //  tp_repr
+  (reprfunc)repeated_scalar_container::ToStr,      //  tp_repr
   0,                                   //  tp_as_number
   &repeated_scalar_container::SqMethods,   //  tp_as_sequence
   &repeated_scalar_container::MpMethods,   //  tp_as_mapping

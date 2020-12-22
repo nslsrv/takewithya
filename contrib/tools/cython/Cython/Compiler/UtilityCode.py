@@ -8,17 +8,15 @@ from . import Code
 
 class NonManglingModuleScope(Symtab.ModuleScope):
 
-    cpp = False
-
     def __init__(self, prefix, *args, **kw):
         self.prefix = prefix
         self.cython_scope = None
+        self.cpp = kw.pop('cpp', False)
         Symtab.ModuleScope.__init__(self, *args, **kw)
 
     def add_imported_entry(self, name, entry, pos):
         entry.used = True
-        return super(NonManglingModuleScope, self).add_imported_entry(
-                                                        name, entry, pos)
+        return super(NonManglingModuleScope, self).add_imported_entry(name, entry, pos)
 
     def mangle(self, prefix, name=None):
         if name:
@@ -45,7 +43,7 @@ class CythonUtilityCodeContext(StringParseContext):
 
         if self.scope is None:
             self.scope = NonManglingModuleScope(
-                self.prefix, module_name, parent_module=None, context=self)
+                self.prefix, module_name, parent_module=None, context=self, cpp=self.cpp)
 
         return self.scope
 
@@ -78,7 +76,13 @@ class CythonUtilityCode(Code.UtilityCodeBase):
         #    while the generated node trees can be altered in the compilation of a
         #    single file.
         # Hence, delay any processing until later.
+        context_types = {}
         if context is not None:
+            from .PyrexTypes import BaseType
+            for key, value in context.items():
+                if isinstance(value, BaseType):
+                    context[key] = key
+                    context_types[key] = value
             impl = Code.sub_tempita(impl, context, file, name)
         self.impl = impl
         self.name = name
@@ -88,6 +92,7 @@ class CythonUtilityCode(Code.UtilityCodeBase):
         self.from_scope = from_scope
         self.outer_module_scope = outer_module_scope
         self.compiler_directives = compiler_directives
+        self.context_types = context_types
 
     def __eq__(self, other):
         if isinstance(other, CythonUtilityCode):
@@ -113,7 +118,8 @@ class CythonUtilityCode(Code.UtilityCodeBase):
 
         from . import Pipeline, ParseTreeTransforms
         context = CythonUtilityCodeContext(
-            self.name, compiler_directives=self.compiler_directives)
+            self.name, compiler_directives=self.compiler_directives,
+            cpp=cython_scope.is_cpp() if cython_scope else False)
         context.prefix = self.prefix
         context.cython_scope = cython_scope
         #context = StringParseContext(self.name)
@@ -137,14 +143,22 @@ class CythonUtilityCode(Code.UtilityCodeBase):
         pipeline = Pipeline.insert_into_pipeline(pipeline, transform,
                                                  before=before)
 
-        if self.from_scope:
-            def scope_transform(module_node):
-                module_node.scope.merge_in(self.from_scope)
+        def merge_scope(scope):
+            def merge_scope_transform(module_node):
+                module_node.scope.merge_in(scope)
                 return module_node
+            return merge_scope_transform
 
-            transform = ParseTreeTransforms.AnalyseDeclarationsTransform
-            pipeline = Pipeline.insert_into_pipeline(pipeline, scope_transform,
-                                                     before=transform)
+        if self.from_scope:
+            pipeline = Pipeline.insert_into_pipeline(
+                pipeline, merge_scope(self.from_scope),
+                before=ParseTreeTransforms.AnalyseDeclarationsTransform)
+
+        for dep in self.requires:
+            if isinstance(dep, CythonUtilityCode) and hasattr(dep, 'tree') and not cython_scope:
+                pipeline = Pipeline.insert_into_pipeline(
+                    pipeline, merge_scope(dep.tree.scope),
+                    before=ParseTreeTransforms.AnalyseDeclarationsTransform)
 
         if self.outer_module_scope:
             # inject outer module between utility code module and builtin module
@@ -152,12 +166,25 @@ class CythonUtilityCode(Code.UtilityCodeBase):
                 module_node.scope.outer_scope = self.outer_module_scope
                 return module_node
 
-            transform = ParseTreeTransforms.AnalyseDeclarationsTransform
-            pipeline = Pipeline.insert_into_pipeline(pipeline, scope_transform,
-                                                     before=transform)
+            pipeline = Pipeline.insert_into_pipeline(
+                pipeline, scope_transform,
+                before=ParseTreeTransforms.AnalyseDeclarationsTransform)
+
+        if self.context_types:
+            # inject types into module scope
+            def scope_transform(module_node):
+                for name, type in self.context_types.items():
+                    entry = module_node.scope.declare_type(name, type, None, visibility='extern')
+                    entry.in_cinclude = True
+                return module_node
+
+            pipeline = Pipeline.insert_into_pipeline(
+                pipeline, scope_transform,
+                before=ParseTreeTransforms.AnalyseDeclarationsTransform)
 
         (err, tree) = Pipeline.run_pipeline(pipeline, tree, printtree=False)
         assert not err, err
+        self.tree = tree
         return tree
 
     def put_code(self, output):
@@ -186,20 +213,20 @@ class CythonUtilityCode(Code.UtilityCodeBase):
         entries.pop('__builtins__')
         entries.pop('__doc__')
 
-        for name, entry in entries.items():
+        for entry in entries.values():
             entry.utility_code_definition = self
             entry.used = used
 
         original_scope = tree.scope
-        dest_scope.merge_in(original_scope, merge_unused=True,
-                            whitelist=whitelist)
+        dest_scope.merge_in(original_scope, merge_unused=True, whitelist=whitelist)
         tree.scope = dest_scope
 
         for dep in self.requires:
             if dep.is_cython_utility:
-                dep.declare_in_scope(dest_scope)
+                dep.declare_in_scope(dest_scope, cython_scope=cython_scope)
 
         return original_scope
+
 
 def declare_declarations_in_scope(declaration_string, env, private_type=True,
                                   *args, **kwargs):

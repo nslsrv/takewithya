@@ -12,7 +12,7 @@ private:
     TStringStream Message_;
 
 public:
-    TTimer(const TStringBuf message = STRINGBUF(" took: "));
+    TTimer(const TStringBuf message = TStringBuf(" took: "));
     ~TTimer();
 };
 
@@ -78,10 +78,10 @@ class TFormattedPrecisionTimer {
 private:
     ui64 Start;
     const char* Message;
-    TOutputStream* Out;
+    IOutputStream* Out;
 
 public:
-    TFormattedPrecisionTimer(const char* message = "took ", TOutputStream* out = &Cout);
+    TFormattedPrecisionTimer(const char* message = "took ", IOutputStream* out = &Cout);
     ~TFormattedPrecisionTimer();
 };
 

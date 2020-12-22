@@ -19,7 +19,7 @@ cdef extern from "pythread.h":
     int PyThread_acquire_lock(PyThread_type_lock, int mode) nogil
     void PyThread_release_lock(PyThread_type_lock) nogil
 
-cdef extern from "string.h":
+cdef extern from "<string.h>":
     void *memset(void *b, int c, size_t len)
 
 cdef extern from *:
@@ -33,6 +33,8 @@ cdef extern from *:
 
     void* PyMem_Malloc(size_t n)
     void PyMem_Free(void *p)
+    void* PyObject_Malloc(size_t n)
+    void PyObject_Free(void *p)
 
     cdef struct __pyx_memoryview "__pyx_memoryview_obj":
         Py_buffer view
@@ -62,7 +64,9 @@ cdef extern from *:
         PyBUF_WRITABLE
         PyBUF_STRIDES
         PyBUF_INDIRECT
+        PyBUF_ND
         PyBUF_RECORDS
+        PyBUF_RECORDS_RO
 
     ctypedef struct __Pyx_TypeInfo:
         pass
@@ -79,13 +83,13 @@ cdef extern from *:
                                  size_t sizeof_dtype, int contig_flag,
                                  bint dtype_is_object) nogil except *
     bint slice_is_contig "__pyx_memviewslice_is_contig" (
-                            {{memviewslice_name}} *mvs, char order, int ndim) nogil
+                            {{memviewslice_name}} mvs, char order, int ndim) nogil
     bint slices_overlap "__pyx_slices_overlap" ({{memviewslice_name}} *slice1,
                                                 {{memviewslice_name}} *slice2,
                                                 int ndim, size_t itemsize) nogil
 
 
-cdef extern from "stdlib.h":
+cdef extern from "<stdlib.h>":
     void *malloc(size_t) nogil
     void free(void *) nogil
     void *memcpy(void *dest, void *src, size_t n) nogil
@@ -137,7 +141,7 @@ cdef class array:
         self.format = self._format
 
         # use single malloc() for both shape and strides
-        self._shape = <Py_ssize_t *> PyMem_Malloc(sizeof(Py_ssize_t)*self.ndim*2)
+        self._shape = <Py_ssize_t *> PyObject_Malloc(sizeof(Py_ssize_t)*self.ndim*2)
         self._strides = self._shape + self.ndim
 
         if not self._shape:
@@ -212,15 +216,19 @@ cdef class array:
                 refcount_objects_in_slice(self.data, self._shape,
                                           self._strides, self.ndim, False)
             free(self.data)
-        PyMem_Free(self._shape)
+        PyObject_Free(self._shape)
 
-    property memview:
-        @cname('get_memview')
-        def __get__(self):
-            # Make this a property as 'self.data' may be set after instantiation
-            flags =  PyBUF_ANY_CONTIGUOUS|PyBUF_FORMAT|PyBUF_WRITABLE
-            return  memoryview(self, flags, self.dtype_is_object)
+    @property
+    def memview(self):
+        return self.get_memview()
 
+    @cname('get_memview')
+    cdef get_memview(self):
+        flags =  PyBUF_ANY_CONTIGUOUS|PyBUF_FORMAT|PyBUF_WRITABLE
+        return  memoryview(self, flags, self.dtype_is_object)
+
+    def __len__(self):
+        return self._shape[0]
 
     def __getattr__(self, attr):
         return getattr(self.memview, attr)
@@ -300,6 +308,24 @@ cdef void *align_pointer(void *memory, size_t alignment) nogil:
 
     return <void *> aligned_p
 
+
+# pre-allocate thread locks for reuse
+## note that this could be implemented in a more beautiful way in "normal" Cython,
+## but this code gets merged into the user module and not everything works there.
+DEF THREAD_LOCKS_PREALLOCATED = 8
+cdef int __pyx_memoryview_thread_locks_used = 0
+cdef PyThread_type_lock[THREAD_LOCKS_PREALLOCATED] __pyx_memoryview_thread_locks = [
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+    PyThread_allocate_lock(),
+]
+
+
 @cname('__pyx_memoryview')
 cdef class memoryview(object):
 
@@ -325,12 +351,17 @@ cdef class memoryview(object):
                 (<__pyx_buffer *> &self.view).obj = Py_None
                 Py_INCREF(Py_None)
 
-        self.lock = PyThread_allocate_lock()
-        if self.lock == NULL:
-            raise MemoryError
+        global __pyx_memoryview_thread_locks_used
+        if __pyx_memoryview_thread_locks_used < THREAD_LOCKS_PREALLOCATED:
+            self.lock = __pyx_memoryview_thread_locks[__pyx_memoryview_thread_locks_used]
+            __pyx_memoryview_thread_locks_used += 1
+        if self.lock is NULL:
+            self.lock = PyThread_allocate_lock()
+            if self.lock is NULL:
+                raise MemoryError
 
         if flags & PyBUF_FORMAT:
-            self.dtype_is_object = self.view.format == b'O'
+            self.dtype_is_object = (self.view.format[0] == b'O' and self.view.format[1] == b'\0')
         else:
             self.dtype_is_object = dtype_is_object
 
@@ -341,9 +372,23 @@ cdef class memoryview(object):
     def __dealloc__(memoryview self):
         if self.obj is not None:
             __Pyx_ReleaseBuffer(&self.view)
+        elif (<__pyx_buffer *> &self.view).obj == Py_None:
+            # Undo the incref in __cinit__() above.
+            (<__pyx_buffer *> &self.view).obj = NULL
+            Py_DECREF(Py_None)
 
+        cdef int i
+        global __pyx_memoryview_thread_locks_used
         if self.lock != NULL:
-            PyThread_free_lock(self.lock)
+            for i in range(__pyx_memoryview_thread_locks_used):
+                if __pyx_memoryview_thread_locks[i] is self.lock:
+                    __pyx_memoryview_thread_locks_used -= 1
+                    if i != __pyx_memoryview_thread_locks_used:
+                        __pyx_memoryview_thread_locks[i], __pyx_memoryview_thread_locks[__pyx_memoryview_thread_locks_used] = (
+                            __pyx_memoryview_thread_locks[__pyx_memoryview_thread_locks_used], __pyx_memoryview_thread_locks[i])
+                    break
+            else:
+                PyThread_free_lock(self.lock)
 
     cdef char *get_item_pointer(memoryview self, object index) except NULL:
         cdef Py_ssize_t dim
@@ -369,6 +414,9 @@ cdef class memoryview(object):
             return self.convert_item_to_object(itemp)
 
     def __setitem__(memoryview self, object index, object value):
+        if self.view.readonly:
+            raise TypeError("Cannot assign to read-only memoryview")
+
         have_slices, index = _unellipsify(index, self.view.ndim)
 
         if have_slices:
@@ -383,7 +431,7 @@ cdef class memoryview(object):
     cdef is_slice(self, obj):
         if not isinstance(obj, memoryview):
             try:
-                obj = memoryview(obj, self.flags|PyBUF_ANY_CONTIGUOUS,
+                obj = memoryview(obj, self.flags & ~PyBUF_WRITABLE | PyBUF_ANY_CONTIGUOUS,
                                  self.dtype_is_object)
             except TypeError:
                 return None
@@ -468,7 +516,10 @@ cdef class memoryview(object):
 
     @cname('getbuffer')
     def __getbuffer__(self, Py_buffer *info, int flags):
-        if flags & PyBUF_STRIDES:
+        if flags & PyBUF_WRITABLE and self.view.readonly:
+            raise ValueError("Cannot create writable memory view from read-only memoryview")
+
+        if flags & PyBUF_ND:
             info.shape = self.view.shape
         else:
             info.shape = NULL
@@ -492,73 +543,64 @@ cdef class memoryview(object):
         info.ndim = self.view.ndim
         info.itemsize = self.view.itemsize
         info.len = self.view.len
-        info.readonly = 0
+        info.readonly = self.view.readonly
         info.obj = self
 
     __pyx_getbuffer = capsule(<void *> &__pyx_memoryview_getbuffer, "getbuffer(obj, view, flags)")
 
-    # Some properties that have the same sematics as in NumPy
-    property T:
-        @cname('__pyx_memoryview_transpose')
-        def __get__(self):
-            cdef _memoryviewslice result = memoryview_copy(self)
-            transpose_memslice(&result.from_slice)
-            return result
+    # Some properties that have the same semantics as in NumPy
+    @property
+    def T(self):
+        cdef _memoryviewslice result = memoryview_copy(self)
+        transpose_memslice(&result.from_slice)
+        return result
 
-    property base:
-        @cname('__pyx_memoryview__get__base')
-        def __get__(self):
-            return self.obj
+    @property
+    def base(self):
+        return self.obj
 
-    property shape:
-        @cname('__pyx_memoryview_get_shape')
-        def __get__(self):
-            return tuple([length for length in self.view.shape[:self.view.ndim]])
+    @property
+    def shape(self):
+        return tuple([length for length in self.view.shape[:self.view.ndim]])
 
-    property strides:
-        @cname('__pyx_memoryview_get_strides')
-        def __get__(self):
-            if self.view.strides == NULL:
-                # Note: we always ask for strides, so if this is not set it's a bug
-                raise ValueError("Buffer view does not expose strides")
+    @property
+    def strides(self):
+        if self.view.strides == NULL:
+            # Note: we always ask for strides, so if this is not set it's a bug
+            raise ValueError("Buffer view does not expose strides")
 
-            return tuple([stride for stride in self.view.strides[:self.view.ndim]])
+        return tuple([stride for stride in self.view.strides[:self.view.ndim]])
 
-    property suboffsets:
-        @cname('__pyx_memoryview_get_suboffsets')
-        def __get__(self):
-            if self.view.suboffsets == NULL:
-                return (-1,) * self.view.ndim
+    @property
+    def suboffsets(self):
+        if self.view.suboffsets == NULL:
+            return (-1,) * self.view.ndim
 
-            return tuple([suboffset for suboffset in self.view.suboffsets[:self.view.ndim]])
+        return tuple([suboffset for suboffset in self.view.suboffsets[:self.view.ndim]])
 
-    property ndim:
-        @cname('__pyx_memoryview_get_ndim')
-        def __get__(self):
-            return self.view.ndim
+    @property
+    def ndim(self):
+        return self.view.ndim
 
-    property itemsize:
-        @cname('__pyx_memoryview_get_itemsize')
-        def __get__(self):
-            return self.view.itemsize
+    @property
+    def itemsize(self):
+        return self.view.itemsize
 
-    property nbytes:
-        @cname('__pyx_memoryview_get_nbytes')
-        def __get__(self):
-            return self.size * self.view.itemsize
+    @property
+    def nbytes(self):
+        return self.size * self.view.itemsize
 
-    property size:
-        @cname('__pyx_memoryview_get_size')
-        def __get__(self):
-            if self._size is None:
-                result = 1
+    @property
+    def size(self):
+        if self._size is None:
+            result = 1
 
-                for length in self.view.shape[:self.view.ndim]:
-                    result *= length
+            for length in self.view.shape[:self.view.ndim]:
+                result *= length
 
-                self._size = result
+            self._size = result
 
-            return self._size
+        return self._size
 
     def __len__(self):
         if self.view.ndim >= 1:
@@ -578,13 +620,13 @@ cdef class memoryview(object):
         cdef {{memviewslice_name}} *mslice
         cdef {{memviewslice_name}} tmp
         mslice = get_slice_from_memview(self, &tmp)
-        return slice_is_contig(mslice, 'C', self.view.ndim)
+        return slice_is_contig(mslice[0], 'C', self.view.ndim)
 
     def is_f_contig(self):
         cdef {{memviewslice_name}} *mslice
         cdef {{memviewslice_name}} tmp
         mslice = get_slice_from_memview(self, &tmp)
-        return slice_is_contig(mslice, 'F', self.view.ndim)
+        return slice_is_contig(mslice[0], 'F', self.view.ndim)
 
     def copy(self):
         cdef {{memviewslice_name}} mslice
@@ -745,11 +787,11 @@ cdef memoryview memview_slice(memoryview memview, object indices):
 ### Slicing in a single dimension of a memoryviewslice
 #
 
-cdef extern from "stdlib.h":
+cdef extern from "<stdlib.h>":
     void abort() nogil
     void printf(char *s, ...) nogil
 
-cdef extern from "stdio.h":
+cdef extern from "<stdio.h>":
     ctypedef struct FILE
     FILE *stderr
     int fputs(char *s, FILE *stream)
@@ -946,10 +988,9 @@ cdef class _memoryviewslice(memoryview):
         else:
             memoryview.assign_item_from_object(self, itemp, value)
 
-    property base:
-        @cname('__pyx_memoryviewslice__get__base')
-        def __get__(self):
-            return self.from_object
+    @property
+    def base(self):
+        return self.from_object
 
     __pyx_getbuffer = capsule(<void *> &__pyx_memoryview_getbuffer, "getbuffer(obj, view, flags)")
 
@@ -983,7 +1024,10 @@ cdef memoryview_fromslice({{memviewslice_name}} memviewslice,
     (<__pyx_buffer *> &result.view).obj = Py_None
     Py_INCREF(Py_None)
 
-    result.flags = PyBUF_RECORDS
+    if (<memoryview>memviewslice.memview).flags & PyBUF_WRITABLE:
+        result.flags = PyBUF_RECORDS
+    else:
+        result.flags = PyBUF_RECORDS_RO
 
     result.view.shape = <Py_ssize_t *> result.from_slice.shape
     result.view.strides = <Py_ssize_t *> result.from_slice.strides
@@ -1006,7 +1050,7 @@ cdef memoryview_fromslice({{memviewslice_name}} memviewslice,
 
 @cname('__pyx_memoryview_get_slice_from_memoryview')
 cdef {{memviewslice_name}} *get_slice_from_memview(memoryview memview,
-                                                   {{memviewslice_name}} *mslice):
+                                                   {{memviewslice_name}} *mslice) except NULL:
     cdef _memoryviewslice obj
     if isinstance(memview, _memoryviewslice):
         obj = memview
@@ -1132,11 +1176,10 @@ cdef void copy_strided_to_strided({{memviewslice_name}} *src,
 @cname('__pyx_memoryview_slice_get_size')
 cdef Py_ssize_t slice_get_size({{memviewslice_name}} *src, int ndim) nogil:
     "Return the size of the memory occupied by the slice in number of bytes"
-    cdef int i
-    cdef Py_ssize_t size = src.memview.view.itemsize
+    cdef Py_ssize_t shape, size = src.memview.view.itemsize
 
-    for i in range(ndim):
-        size *= src.shape[i]
+    for shape in src.shape[:ndim]:
+        size *= shape
 
     return size
 
@@ -1153,11 +1196,11 @@ cdef Py_ssize_t fill_contig_strides_array(
     if order == 'F':
         for idx in range(ndim):
             strides[idx] = stride
-            stride = stride * shape[idx]
+            stride *= shape[idx]
     else:
         for idx in range(ndim - 1, -1, -1):
             strides[idx] = stride
-            stride = stride * shape[idx]
+            stride *= shape[idx]
 
     return stride
 
@@ -1195,7 +1238,7 @@ cdef void *copy_data_to_temp({{memviewslice_name}} *src,
         if tmpslice.shape[i] == 1:
             tmpslice.strides[i] = 0
 
-    if slice_is_contig(src, order, ndim):
+    if slice_is_contig(src[0], order, ndim):
         memcpy(result, src.data, size)
     else:
         copy_strided_to_strided(src, tmpslice, ndim, itemsize)
@@ -1258,7 +1301,7 @@ cdef int memoryview_copy_contents({{memviewslice_name}} src,
 
     if slices_overlap(&src, &dst, ndim, itemsize):
         # slices overlap, copy to temp, copy temp to dst
-        if not slice_is_contig(&src, order, ndim):
+        if not slice_is_contig(src, order, ndim):
             order = get_best_order(&dst, ndim)
 
         tmpdata = copy_data_to_temp(&src, &tmp, order, ndim)
@@ -1267,10 +1310,10 @@ cdef int memoryview_copy_contents({{memviewslice_name}} src,
     if not broadcasting:
         # See if both slices have equal contiguity, in that case perform a
         # direct copy. This only works when we are not broadcasting.
-        if slice_is_contig(&src, 'C', ndim):
-            direct_copy = slice_is_contig(&dst, 'C', ndim)
-        elif slice_is_contig(&src, 'F', ndim):
-            direct_copy = slice_is_contig(&dst, 'F', ndim)
+        if slice_is_contig(src, 'C', ndim):
+            direct_copy = slice_is_contig(dst, 'C', ndim)
+        elif slice_is_contig(src, 'F', ndim):
+            direct_copy = slice_is_contig(dst, 'F', ndim)
 
         if direct_copy:
             # Contiguous slices with same order
@@ -1311,7 +1354,7 @@ cdef void broadcast_leading({{memviewslice_name}} *mslice,
         mslice.suboffsets[i] = -1
 
 #
-### Take care of refcounting the objects in slices. Do this seperately from any copying,
+### Take care of refcounting the objects in slices. Do this separately from any copying,
 ### to minimize acquiring the GIL
 #
 

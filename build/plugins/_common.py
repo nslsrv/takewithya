@@ -1,5 +1,6 @@
 import sys
 import hashlib
+import base64
 
 
 class Result(object):
@@ -21,7 +22,7 @@ def lazy(func):
 
 
 def pathid(path):
-    return hashlib.md5(path).hexdigest()
+    return base64.b32encode(hashlib.md5(path).digest()).lower().strip('=')
 
 
 def listid(l):
@@ -114,6 +115,10 @@ def resolve_to_abs_path(path, source_root, build_root):
     return path
 
 
+def resolve_to_ymake_path(path):
+    return resolve_to_abs_path(path, '${ARCADIA_ROOT}', '${ARCADIA_BUILD_ROOT}')
+
+
 def join_intl_paths(*args):
     return '/'.join(args)
 
@@ -128,6 +133,10 @@ def make_tuples(arg_list):
             yield (x, [])
 
     return list(tpl())
+
+
+def resolve_includes(unit, src, paths):
+    return unit.resolve_include([src] + paths) if paths else []
 
 
 def rootrel_arc_src(src, unit):
@@ -163,22 +172,26 @@ def get_interpreter_path():
     return interpreter_path
 
 
-# ----------------_common tests------------------ #
-def test_sort_by_keywords():
-    keywords = {'KEY1': 2, 'KEY2': 0, 'KEY3': 1}
-    args = 'aaaa bbbb KEY2 KEY1 kkk10 kkk11 ccc ddd KEY3 kkk3 eee'.split()
-    flat, spec = sort_by_keywords(keywords, args)
-    assert flat == ['aaaa', 'bbbb', 'ccc', 'ddd', 'eee']
-    assert spec == {'KEY1': ['kkk10', 'kkk11'], 'KEY2': True, 'KEY3': ['kkk3']}
+def filter_out_by_keyword(test_data, keyword):
+    def _iterate():
+        i = 0
+        while i < len(test_data):
+            if test_data[i] == keyword:
+                i += 2
+            else:
+                yield test_data[i]
+                i += 1
 
-    keywords = {'KEY1': 0, 'KEY2': 4}
-    args = 'aaaa KEY2 eee'.split()
-    flat, spec = sort_by_keywords(keywords, args)
-    assert flat == ['aaaa']
-    assert spec == {'KEY2': ['eee']}
+    return list(_iterate())
 
-    keywords = {'KEY1': 2, 'KEY2': 2}
-    args = 'KEY1 k10 KEY2 k20 KEY1 k11 KEY2 k21 KEY1 k13'.split()
-    flat, spec = sort_by_keywords(keywords, args)
-    assert flat == []
-    assert spec == {'KEY1': ['k10', 'k11', 'k13'], 'KEY2': ['k20', 'k21']}
+
+def generate_chunks(lst, chunk_size):
+    for i in xrange(0, len(lst), chunk_size):
+        yield lst[i:(i + chunk_size)]
+
+
+def strip_roots(path):
+    for prefix in ["$B/", "$S/"]:
+        if path.startswith(prefix):
+            return path[len(prefix):]
+    return path

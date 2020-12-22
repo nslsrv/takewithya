@@ -33,14 +33,6 @@
 #endif
 
 #ifdef __GNUC__
-#define Y_DEPRECATED(message) __attribute__((deprecated(message)))
-#elif defined(_MSC_VER)
-#define Y_DEPRECATED(message) __declspec(deprecated(message))
-#else
-#define Y_DEPRECATED(message)
-#endif
-
-#ifdef __GNUC__
 #define Y_PRINTF_FORMAT(n, m) __attribute__((__format__(__printf__, n, m)))
 #endif
 
@@ -54,41 +46,6 @@
 
 #if !defined(Y_NO_SANITIZE)
 #define Y_NO_SANITIZE(...)
-#endif
-
-/**
- * @def Y_NO_RETURN
- *
- * Macro to use before a function declaration/definition to designate
- * it as not returning normally.
- */
-#if !defined(Y_NO_RETURN)
-#if defined(_MSC_VER)
-#define Y_NO_RETURN __declspec(noreturn)
-#elif defined(__GNUC__)
-#define Y_NO_RETURN __attribute__((__noreturn__))
-#else
-#define Y_NO_RETURN
-#endif
-#endif
-
-/**
- * @def Y_NO_RETURN_WITH_VALUE
- *
- * Same as `Y_NO_RETURN`, but to be used when a function is declared as actually
- * returning a value, e.g.:
- *
- * @code
- * Y_NO_RETURN_WITH_VALUE int Fail();
- * @endcode
- *
- * This macro is needed to work around a warning that is emitted by MSVS for
- * such functions.
- */
-#if defined(_MSC_VER)
-#define Y_NO_RETURN_WITH_VALUE
-#else
-#define Y_NO_RETURN_WITH_VALUE Y_NO_RETURN
 #endif
 
 /**
@@ -129,7 +86,10 @@
  * it to be inlined.
  */
 #if !defined(Y_FORCE_INLINE)
-#if defined(_MSC_VER)
+#if defined(CLANG_COVERAGE)
+#/* excessive __always_inline__ might significantly slow down compilation of an instrumented unit */
+#define Y_FORCE_INLINE inline
+#elif defined(_MSC_VER)
 #define Y_FORCE_INLINE __forceinline
 #elif defined(__GNUC__)
 #/* Clang also defines __GNUC__ (as 4) */
@@ -223,8 +183,14 @@
 #define Y_PUBLIC
 #endif
 
-#ifndef Y_UNUSED
+#if !defined(Y_UNUSED) && !defined(__cplusplus)
 #define Y_UNUSED(var) (void)(var)
+#endif
+#if !defined(Y_UNUSED) && defined(__cplusplus)
+template <class... Types>
+constexpr Y_FORCE_INLINE int Y_UNUSED(Types&&...) {
+    return 0;
+};
 #endif
 
 /**
@@ -246,8 +212,8 @@
  *
  * // we know that xs and ys are non-negative from domain knowledge,
  * // but we can't change the types of xs and ys because of API constrains
- * int Foo(const yvector<int>& xs, const yvector<int>& ys) {
- *     yvector<int> avgs;
+ * int Foo(const TVector<int>& xs, const TVector<int>& ys) {
+ *     TVector<int> avgs;
  *     avgs.resize(xs.size());
  *     for (size_t i = 0; i < xs.size(); ++i) {
  *         auto x = xs[i];
@@ -267,7 +233,10 @@
 #define Y_ASSUME(condition) Y_UNUSED(condition)
 #endif
 
-Y_HIDDEN Y_NO_RETURN void _YandexAbort();
+#ifdef __cplusplus
+[[noreturn]]
+#endif
+Y_HIDDEN void _YandexAbort();
 
 /**
  * @def Y_UNREACHABLE
@@ -288,8 +257,10 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
  * }
  * @endcode
  */
-#if defined(__GNUC__) || defined(_MSC_VER)
-#define Y_UNREACHABLE() Y_ASSUME(0)
+#if defined(__GNUC__)
+#define Y_UNREACHABLE() __builtin_unreachable()
+#elif defined (_MSC_VER)
+#define Y_UNREACHABLE() __assume(false)
 #else
 #define Y_UNREACHABLE() _YandexAbort()
 #endif
@@ -338,9 +309,17 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
 #define Y_WEAK
 #endif
 
-/// NVidia CUDA C++ Compiler does not know about noexcept keyword
+#if defined(__CUDACC_VER_MAJOR__)
+#define Y_CUDA_AT_LEAST(x, y) (__CUDACC_VER_MAJOR__ > x || (__CUDACC_VER_MAJOR__ == x && __CUDACC_VER_MINOR__ >= y))
+#else
+#define Y_CUDA_AT_LEAST(x, y) 0
+#endif
+
+// NVidia CUDA C++ Compiler did not know about noexcept keyword until version 9.0
+#if !Y_CUDA_AT_LEAST(9, 0)
 #if defined(__CUDACC__) && !defined(noexcept)
 #define noexcept throw ()
+#endif
 #endif
 
 #if defined(__GNUC__)
@@ -398,7 +377,7 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
     Y_PRAGMA("GCC diagnostic push")
 #elif defined(_MSC_VER)
 #define Y_PRAGMA_DIAGNOSTIC_PUSH \
-    Y_PRAGMA("warning(push)")
+    Y_PRAGMA(warning(push))
 #else
 #define Y_PRAGMA_DIAGNOSTIC_PUSH
 #endif
@@ -422,7 +401,7 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
     Y_PRAGMA("GCC diagnostic pop")
 #elif defined(_MSC_VER)
 #define Y_PRAGMA_DIAGNOSTIC_POP \
-    Y_PRAGMA("warning(pop)")
+    Y_PRAGMA(warning(pop))
 #else
 #define Y_PRAGMA_DIAGNOSTIC_POP
 #endif
@@ -454,7 +433,7 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
     Y_PRAGMA("GCC diagnostic ignored \"-Wshadow\"")
 #elif defined(_MSC_VER)
 #define Y_PRAGMA_NO_WSHADOW \
-    Y_PRAGMA("warning(disable:4456 4457)")
+    Y_PRAGMA(warning(disable : 4456 4457))
 #else
 #define Y_PRAGMA_NO_WSHADOW
 #endif
@@ -490,4 +469,152 @@ Y_HIDDEN Y_NO_RETURN void _YandexAbort();
     Y_PRAGMA("GCC diagnostic ignored \"-Wunused-function\"")
 #else
 #define Y_PRAGMA_NO_UNUSED_FUNCTION
+#endif
+
+/**
+ * @ def Y_PRAGMA_NO_UNUSED_PARAMETER
+ *
+ * Cross-compiler pragma to disable warnings about unused function parameters
+ *
+ * @see
+ *     GCC: https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+ *     Clang: https://clang.llvm.org/docs/DiagnosticsReference.html#wunused-parameter
+ *     MSVC: https://msdn.microsoft.com/en-us/library/26kb9fy0.aspx
+ *
+ * @code
+ * Y_PRAGMA_DIAGNOSTIC_PUSH
+ * Y_PRAGMA_NO_UNUSED_PARAMETER
+ *
+ * // some code which introduces a function with unused parameter, e.g.:
+ *
+ * void foo(int a) {
+ *     // a is not referenced
+ * }
+ *
+ * int main() {
+ *     foo(1);
+ *     return 0;
+ * }
+ *
+ * Y_PRAGMA_DIAGNOSTIC_POP
+ * @endcode
+ */
+#if defined(__clang__) || defined(__GNUC__)
+#define Y_PRAGMA_NO_UNUSED_PARAMETER \
+    Y_PRAGMA("GCC diagnostic ignored \"-Wunused-parameter\"")
+#elif defined(_MSC_VER)
+#define Y_PRAGMA_NO_UNUSED_PARAMETER \
+    Y_PRAGMA(warning(disable : 4100))
+#else
+#define Y_PRAGMA_NO_UNUSED_PARAMETER
+#endif
+
+/**
+ * @def Y_PRAGMA_NO_DEPRECATED
+ *
+ * Cross compiler pragma to disable warnings and errors about deprecated
+ *
+ * @see
+ *     GCC: https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+ *     Clang: https://clang.llvm.org/docs/DiagnosticsReference.html#wdeprecated
+ *     MSVC: https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-3-c4996?view=vs-2017
+ *
+ * @code
+ * Y_PRAGMA_DIAGNOSTIC_PUSH
+ * Y_PRAGMA_NO_DEPRECATED
+ *
+ * [deprecated] void foo() {
+ *     // ...
+ * }
+ *
+ * int main() {
+ *     foo();
+ *     return 0;
+ * }
+ *
+ * Y_PRAGMA_DIAGNOSTIC_POP
+ * @endcode
+ */
+#if defined(__clang__) || defined(__GNUC__)
+#define Y_PRAGMA_NO_DEPRECATED \
+    Y_PRAGMA("GCC diagnostic ignored \"-Wdeprecated\"")
+#elif defined(_MSC_VER)
+#define Y_PRAGMA_NO_DEPRECATED \
+    Y_PRAGMA(warning(disable : 4996))
+#else
+#define Y_PRAGMA_NO_DEPRECATED
+#endif
+
+// Memory sanitizer sometimes doesn't correctly set parameter shadow of constant functions.
+#if (defined(__clang__) || defined(__GNUC__)) && !defined(_msan_enabled_)
+/**
+ * @def Y_CONST_FUNCTION
+   methods and functions, marked with this method are promised to:
+     1. do not have side effects
+     2. this method do not read global memory
+   NOTE: this attribute can't be set for methods that depend on data, pointed by this
+   this allow compilers to do hard optimization of that functions
+   NOTE: in common case this attribute can't be set if method have pointer-arguments
+   NOTE: as result there no any reason to discard result of such method
+*/
+#define Y_CONST_FUNCTION [[gnu::const]]
+#endif
+
+#if !defined(Y_CONST_FUNCTION)
+#define Y_CONST_FUNCTION
+#endif
+
+#if defined(__clang__) || defined(__GNUC__)
+/**
+ * @def Y_PURE_FUNCTION
+   methods and functions, marked with this method are promised to:
+     1. do not have side effects
+     2. result will be the same if no global memory changed
+   this allow compilers to do hard optimization of that functions
+   NOTE: as result there no any reason to discard result of such method
+*/
+#define Y_PURE_FUNCTION [[gnu::pure]]
+#endif
+
+#if !defined(Y_PURE_FUNCTION)
+#define Y_PURE_FUNCTION
+#endif
+
+/**
+ * @ def Y_HAVE_INT128
+ *
+ * Defined when the compiler supports __int128 extension
+ *
+ * @code
+ *
+ * #if defined(Y_HAVE_INT128)
+ *     __int128 myVeryBigInt = 12345678901234567890;
+ * #endif
+ *
+ * @endcode
+ */
+#if defined(__SIZEOF_INT128__)
+#define Y_HAVE_INT128 1
+#endif
+
+/**
+ * XRAY macro must be passed to compiler if XRay is enabled.
+ *
+ * Define everything XRay-specific as a macro so that it doesn't cause errors
+ * for compilers that doesn't support XRay.
+ */
+#if defined(XRAY) && defined(__cplusplus)
+#include <xray/xray_interface.h>
+#define Y_XRAY_ALWAYS_INSTRUMENT [[clang::xray_always_instrument]]
+#define Y_XRAY_NEVER_INSTRUMENT [[clang::xray_never_instrument]]
+#define Y_XRAY_CUSTOM_EVENT(__string, __length) \
+    do {                                        \
+        __xray_customevent(__string, __length); \
+    } while (0)
+#else
+#define Y_XRAY_ALWAYS_INSTRUMENT
+#define Y_XRAY_NEVER_INSTRUMENT
+#define Y_XRAY_CUSTOM_EVENT(__string, __length) \
+    do {                                        \
+    } while (0)
 #endif

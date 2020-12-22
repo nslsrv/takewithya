@@ -2,6 +2,7 @@
 
 #include <util/system/spinlock.h>
 #include <util/system/thread.h>
+#include <util/system/sanitizers.h>
 
 #include <cstring>
 
@@ -31,7 +32,12 @@ void NPrivate::FillWithTrash(void* ptr, size_t len) {
     Y_UNUSED(ptr);
     Y_UNUSED(len);
 #else
-    memset(ptr, 0xBA, len);
+    if constexpr (NSan::TSanIsOn()) {
+        Y_UNUSED(ptr);
+        Y_UNUSED(len);
+    } else {
+        memset(ptr, 0xBA, len);
+    }
 #endif
 }
 
@@ -41,8 +47,10 @@ void NPrivate::LockRecursive(TAtomic& lock) noexcept {
     Y_VERIFY(AtomicGet(lock) != id, "recursive singleton initialization");
 
     if (!MyAtomicTryLock(lock, id)) {
+        TSpinWait sw;
+
         do {
-            SpinLockPause();
+            sw.Sleep();
         } while (!MyAtomicTryAndTryLock(lock, id));
     }
 }

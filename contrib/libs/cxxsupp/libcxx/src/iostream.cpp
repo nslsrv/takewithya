@@ -1,75 +1,172 @@
 //===------------------------ iostream.cpp --------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is dual licensed under the MIT and the University of Illinois Open
-// Source Licenses. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
 #include "__std_stream"
+#include "__locale"
 #include "string"
 #include "new"
+
+#define _str(s) #s
+#define str(s) _str(s)
+#define _LIBCPP_ABI_NAMESPACE_STR str(_LIBCPP_ABI_NAMESPACE)
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #ifndef _LIBCPP_HAS_NO_STDIN
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (istream) char _cin [sizeof(istream)];
-_ALIGNAS_TYPE (__stdinbuf<char> ) static char __cin [sizeof(__stdinbuf <char>)];
+_LIBCPP_FUNC_VIS istream& cin = *reinterpret_cast<istream*>(_cin);
+#else
+_ALIGNAS_TYPE (istream) _LIBCPP_FUNC_VIS char cin[sizeof(istream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?cin@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_istream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
+_ALIGNAS_TYPE (__stdinbuf<char> ) static char __cin[sizeof(__stdinbuf <char>)];
 static mbstate_t mb_cin;
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (wistream) char _wcin [sizeof(wistream)];
-_ALIGNAS_TYPE (__stdinbuf<wchar_t> ) static char __wcin [sizeof(__stdinbuf <wchar_t>)];
+_LIBCPP_FUNC_VIS wistream& wcin = *reinterpret_cast<wistream*>(_wcin);
+#else
+_ALIGNAS_TYPE (wistream) _LIBCPP_FUNC_VIS char wcin[sizeof(wistream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?wcin@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_istream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
+_ALIGNAS_TYPE (__stdinbuf<wchar_t> ) static char __wcin[sizeof(__stdinbuf <wchar_t>)];
 static mbstate_t mb_wcin;
 
-_LIBCPP_FUNC_VIS istream& cin = *reinterpret_cast<istream*>(_cin);
-_LIBCPP_FUNC_VIS wistream& wcin = *reinterpret_cast<wistream*>(_wcin);
 #endif
 
 #ifndef _LIBCPP_HAS_NO_STDOUT
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (ostream)  char _cout[sizeof(ostream)];
+_LIBCPP_FUNC_VIS ostream& cout = *reinterpret_cast<ostream*>(_cout);
+#else
+_ALIGNAS_TYPE (ostream) _LIBCPP_FUNC_VIS char cout[sizeof(ostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?cout@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
 _ALIGNAS_TYPE (__stdoutbuf<char>) static char __cout[sizeof(__stdoutbuf<char>)];
 static mbstate_t mb_cout;
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (wostream) char _wcout[sizeof(wostream)];
+_LIBCPP_FUNC_VIS wostream& wcout = *reinterpret_cast<wostream*>(_wcout);
+#else
+_ALIGNAS_TYPE (wostream) _LIBCPP_FUNC_VIS char wcout[sizeof(wostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?wcout@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
 _ALIGNAS_TYPE (__stdoutbuf<wchar_t>) static char __wcout[sizeof(__stdoutbuf<wchar_t>)];
 static mbstate_t mb_wcout;
 
-_LIBCPP_FUNC_VIS ostream& cout = *reinterpret_cast<ostream*>(_cout);
-_LIBCPP_FUNC_VIS wostream& wcout = *reinterpret_cast<wostream*>(_wcout);
 #endif
 
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (ostream)  char _cerr[sizeof(ostream)];
+_LIBCPP_FUNC_VIS ostream& cerr = *reinterpret_cast<ostream*>(_cerr);
+#else
+_ALIGNAS_TYPE (ostream) _LIBCPP_FUNC_VIS char cerr[sizeof(ostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?cerr@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
 _ALIGNAS_TYPE (__stdoutbuf<char>) static char __cerr[sizeof(__stdoutbuf<char>)];
 static mbstate_t mb_cerr;
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (wostream) char _wcerr[sizeof(wostream)];
+_LIBCPP_FUNC_VIS wostream& wcerr = *reinterpret_cast<wostream*>(_wcerr);
+#else
+_ALIGNAS_TYPE (wostream) _LIBCPP_FUNC_VIS char wcerr[sizeof(wostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?wcerr@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
 _ALIGNAS_TYPE (__stdoutbuf<wchar_t>) static char __wcerr[sizeof(__stdoutbuf<wchar_t>)];
 static mbstate_t mb_wcerr;
 
-_LIBCPP_FUNC_VIS ostream& cerr = *reinterpret_cast<ostream*>(_cerr);
-_LIBCPP_FUNC_VIS wostream& wcerr = *reinterpret_cast<wostream*>(_wcerr);
-
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
 _ALIGNAS_TYPE (ostream)  char _clog[sizeof(ostream)];
-_ALIGNAS_TYPE (wostream) char _wclog[sizeof(wostream)];
-
 _LIBCPP_FUNC_VIS ostream& clog = *reinterpret_cast<ostream*>(_clog);
+#else
+_ALIGNAS_TYPE (ostream) _LIBCPP_FUNC_VIS char clog[sizeof(ostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?clog@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
+
+#if defined(_LIBCPP_ABI_MICROSOFT) && !defined(__clang__)
+_ALIGNAS_TYPE (wostream) char _wclog[sizeof(wostream)];
 _LIBCPP_FUNC_VIS wostream& wclog = *reinterpret_cast<wostream*>(_wclog);
+#else
+_ALIGNAS_TYPE (wostream) _LIBCPP_FUNC_VIS char wclog[sizeof(wostream)]
+#if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
+__asm__("?wclog@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR "@std@@@12@A")
+#endif
+;
+#endif
 
-ios_base::Init __start_std_streams;
+_LIBCPP_HIDDEN ios_base::Init __start_std_streams;
 
-ios_base::Init::Init()
+// On Windows the TLS storage for locales needs to be initialized before we create
+// the standard streams, otherwise it may not be alive during program termination
+// when we flush the streams.
+static void force_locale_initialization() {
+#if defined(_LIBCPP_MSVCRT_LIKE)
+  static bool once = []() {
+    auto loc = newlocale(LC_ALL_MASK, "C", 0);
+    {
+        __libcpp_locale_guard g(loc); // forces initialization of locale TLS
+        ((void)g);
+    }
+    freelocale(loc);
+    return true;
+  }();
+  ((void)once);
+#endif
+}
+
+class DoIOSInit {
+public:
+	DoIOSInit();
+	~DoIOSInit();
+};
+
+DoIOSInit::DoIOSInit()
 {
+    force_locale_initialization();
+
 #ifndef _LIBCPP_HAS_NO_STDIN
-    istream* cin_ptr  = ::new(_cin)  istream(::new(__cin)  __stdinbuf <char>(stdin, &mb_cin));
-    wistream* wcin_ptr  = ::new(_wcin)  wistream(::new(__wcin)  __stdinbuf <wchar_t>(stdin, &mb_wcin));
+    istream* cin_ptr  = ::new(&cin)  istream(::new(__cin)  __stdinbuf <char>(stdin, &mb_cin));
+    wistream* wcin_ptr  = ::new(&wcin)  wistream(::new(__wcin)  __stdinbuf <wchar_t>(stdin, &mb_wcin));
 #endif
 #ifndef _LIBCPP_HAS_NO_STDOUT
-    ostream* cout_ptr = ::new(_cout) ostream(::new(__cout) __stdoutbuf<char>(stdout, &mb_cout));
-    wostream* wcout_ptr = ::new(_wcout) wostream(::new(__wcout) __stdoutbuf<wchar_t>(stdout, &mb_wcout));
+    ostream* cout_ptr = ::new(&cout) ostream(::new(__cout) __stdoutbuf<char>(stdout, &mb_cout));
+    wostream* wcout_ptr = ::new(&wcout) wostream(::new(__wcout) __stdoutbuf<wchar_t>(stdout, &mb_wcout));
 #endif
-    ostream* cerr_ptr = ::new(_cerr) ostream(::new(__cerr) __stdoutbuf<char>(stderr, &mb_cerr));
-                        ::new(_clog) ostream(cerr_ptr->rdbuf());
-    wostream* wcerr_ptr = ::new(_wcerr) wostream(::new(__wcerr) __stdoutbuf<wchar_t>(stderr, &mb_wcerr));
-                          ::new(_wclog) wostream(wcerr_ptr->rdbuf());
+    ostream* cerr_ptr = ::new(&cerr) ostream(::new(__cerr) __stdoutbuf<char>(stderr, &mb_cerr));
+                        ::new(&clog) ostream(cerr_ptr->rdbuf());
+    wostream* wcerr_ptr = ::new(&wcerr) wostream(::new(__wcerr) __stdoutbuf<wchar_t>(stderr, &mb_wcerr));
+                          ::new(&wclog) wostream(wcerr_ptr->rdbuf());
 
 #if !defined(_LIBCPP_HAS_NO_STDIN) && !defined(_LIBCPP_HAS_NO_STDOUT)
     cin_ptr->tie(cout_ptr);
@@ -83,19 +180,28 @@ ios_base::Init::Init()
 #endif
 }
 
-ios_base::Init::~Init()
+DoIOSInit::~DoIOSInit()
 {
 #ifndef _LIBCPP_HAS_NO_STDOUT
-    ostream* cout_ptr = reinterpret_cast<ostream*>(_cout);
-    wostream* wcout_ptr = reinterpret_cast<wostream*>(_wcout);
+    ostream* cout_ptr = reinterpret_cast<ostream*>(&cout);
+    wostream* wcout_ptr = reinterpret_cast<wostream*>(&wcout);
     cout_ptr->flush();
     wcout_ptr->flush();
 #endif
 
-    ostream* clog_ptr = reinterpret_cast<ostream*>(_clog);
-    wostream* wclog_ptr = reinterpret_cast<wostream*>(_wclog);
+    ostream* clog_ptr = reinterpret_cast<ostream*>(&clog);
+    wostream* wclog_ptr = reinterpret_cast<wostream*>(&wclog);
     clog_ptr->flush();
     wclog_ptr->flush();
+}
+
+ios_base::Init::Init()
+{
+    static DoIOSInit init_the_streams; // gets initialized once
+}
+
+ios_base::Init::~Init()
+{
 }
 
 _LIBCPP_END_NAMESPACE_STD

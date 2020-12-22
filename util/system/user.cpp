@@ -1,6 +1,7 @@
 #include "user.h"
 #include "platform.h"
 #include "defaults.h"
+#include "env.h"
 
 #include <util/generic/yexception.h>
 
@@ -13,6 +14,12 @@
 #endif
 
 TString GetUsername() {
+    for (const auto& var : {"LOGNAME", "USER", "LNAME", "USERNAME"}) {
+        TString val = GetEnv(var);
+        if (val)
+            return val;
+    }
+
     TTempBuf nameBuf;
     for (;;) {
 #if defined(_win_)
@@ -33,18 +40,17 @@ TString GetUsername() {
             return TString(pwd->pw_name);
         }
 
-        ythrow TSystemError() << STRINGBUF(" getpwuid failed");
+        ythrow TSystemError() << TStringBuf(" getpwuid failed");
 #else
         passwd pwd;
         passwd* tmpPwd;
         int err = getpwuid_r(geteuid(), &pwd, nameBuf.Data(), nameBuf.Size(), &tmpPwd);
-        if (err) {
-            if (err == ERANGE)
-                nameBuf = TTempBuf(nameBuf.Size() * 2);
-            else
-                ythrow TSystemError(err) << " getpwuid_r failed";
-        } else {
+        if (err == 0 && tmpPwd) {
             return TString(pwd.pw_name);
+        } else if (err == ERANGE) {
+            nameBuf = TTempBuf(nameBuf.Size() * 2);
+        } else {
+            ythrow TSystemError(err) << " getpwuid_r failed";
         }
 #endif
     }

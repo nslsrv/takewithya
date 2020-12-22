@@ -3,13 +3,15 @@
 #include "recode_result.h"
 #include "unidata.h"
 #include "utf8.h"
+#include "wide_specific.h"
 
-#include <util/generic/string.h>
 #include <util/generic/algorithm.h>
+#include <util/generic/string.h>
 #include <util/generic/yexception.h>
 #include <util/memory/tempbuf.h>
-#include <util/system/yassert.h>
+#include <util/system/compiler.h>
 #include <util/system/cpu_id.h>
+#include <util/system/yassert.h>
 
 #include <cstring>
 
@@ -19,7 +21,7 @@
 
 template <class T>
 class TTempArray;
-using TCharTemp = TTempArray<TChar>;
+using TCharTemp = TTempArray<wchar16>;
 
 namespace NDetail {
     inline TString InStringMsg(const char* s, size_t len) {
@@ -32,19 +34,20 @@ namespace NDetail {
     template <>
     struct TSelector<false> {
         template <class T>
-        static inline void WriteSymbol(wchar16 s, T& dest) {
+        static inline void WriteSymbol(wchar16 s, T& dest) noexcept {
             dest.push_back(s);
         }
     };
+
     template <>
     struct TSelector<true> {
         template <class T>
-        static inline void WriteSymbol(wchar16 s, T& dest) {
+        static inline void WriteSymbol(wchar16 s, T& dest) noexcept {
             *(dest++) = s;
         }
     };
 
-    inline wchar32 ReadSurrogatePair(const wchar16* chars) {
+    inline wchar32 ReadSurrogatePair(const wchar16* chars) noexcept {
         const wchar32 SURROGATE_OFFSET = static_cast<wchar32>(0x10000 - (0xD800 << 10) - 0xDC00);
         wchar16 lead = chars[0];
         wchar16 tail = chars[1];
@@ -56,18 +59,26 @@ namespace NDetail {
     }
 
     template <class T>
-    inline void WriteSurrogatePair(wchar32 s, T& dest);
+    inline void WriteSurrogatePair(wchar32 s, T& dest) noexcept;
 
-} // NDetail
-
-inline wchar16* SkipSymbol(wchar16* begin, const wchar16* end) {
-    return begin + W16SymbolSize(begin, end);
-}
-inline const wchar16* SkipSymbol(const wchar16* begin, const wchar16* end) {
-    return begin + W16SymbolSize(begin, end);
 }
 
-inline wchar32 ReadSymbol(const wchar16* begin, const wchar16* end) {
+inline wchar16* SkipSymbol(wchar16* begin, const wchar16* end) noexcept {
+    return begin + W16SymbolSize(begin, end);
+}
+inline const wchar16* SkipSymbol(const wchar16* begin, const wchar16* end) noexcept {
+    return begin + W16SymbolSize(begin, end);
+}
+inline wchar32* SkipSymbol(wchar32* begin, const wchar32* end) noexcept {
+    Y_ASSERT(begin < end);
+    return begin + 1;
+}
+inline const wchar32* SkipSymbol(const wchar32* begin, const wchar32* end) noexcept {
+    Y_ASSERT(begin < end);
+    return begin + 1;
+}
+
+inline wchar32 ReadSymbol(const wchar16* begin, const wchar16* end) noexcept {
     Y_ASSERT(begin < end);
     if (IsW16SurrogateLead(*begin)) {
         if (begin + 1 != end && IsW16SurrogateTail(*(begin + 1)))
@@ -81,8 +92,13 @@ inline wchar32 ReadSymbol(const wchar16* begin, const wchar16* end) {
     return *begin;
 }
 
+inline wchar32 ReadSymbol(const wchar32* begin, const wchar32* end) noexcept {
+    Y_ASSERT(begin < end);
+    return *begin;
+}
+
 //! presuming input data is either big enought of null terminated
-inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin) {
+inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin) noexcept {
     Y_ASSERT(*begin);
     if (IsW16SurrogateLead(begin[0])) {
         if (IsW16SurrogateTail(begin[1])) {
@@ -100,7 +116,13 @@ inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin) {
     return *(begin++);
 }
 
-inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin, const wchar16* end) {
+//! presuming input data is either big enought of null terminated
+inline wchar32 ReadSymbolAndAdvance(const wchar32*& begin) noexcept {
+    Y_ASSERT(*begin);
+    return *(begin++);
+}
+
+inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin, const wchar16* end) noexcept {
     Y_ASSERT(begin < end);
     if (IsW16SurrogateLead(begin[0])) {
         if (begin + 1 != end && IsW16SurrogateTail(begin[1])) {
@@ -117,19 +139,19 @@ inline wchar32 ReadSymbolAndAdvance(const wchar16*& begin, const wchar16* end) {
     return *(begin++);
 }
 
-inline wchar32 ReadSymbolAndAdvance(const wchar32*& begin, const wchar32* end) {
+inline wchar32 ReadSymbolAndAdvance(const wchar32*& begin, const wchar32* end) noexcept {
     Y_ASSERT(begin < end);
     return *(begin++);
 }
 
 template <class T>
-inline size_t WriteSymbol(wchar16 s, T& dest) {
+inline size_t WriteSymbol(wchar16 s, T& dest) noexcept {
     ::NDetail::TSelector<std::is_pointer<T>::value>::WriteSymbol(s, dest);
     return 1;
 }
 
 template <class T>
-inline size_t WriteSymbol(wchar32 s, T& dest) {
+inline size_t WriteSymbol(wchar32 s, T& dest) noexcept {
     if (s > 0xFFFF) {
         if (s >= ::NUnicode::UnicodeInstancesLimit()) {
             return WriteSymbol(static_cast<wchar16>(BROKEN_RUNE), dest);
@@ -142,7 +164,7 @@ inline size_t WriteSymbol(wchar32 s, T& dest) {
     return WriteSymbol(static_cast<wchar16>(s), dest);
 }
 
-inline bool WriteSymbol(wchar32 s, wchar16*& dest, const wchar16* destEnd) {
+inline bool WriteSymbol(wchar32 s, wchar16*& dest, const wchar16* destEnd) noexcept {
     Y_ASSERT(dest < destEnd);
 
     if (s > 0xFFFF) {
@@ -162,12 +184,12 @@ inline bool WriteSymbol(wchar32 s, wchar16*& dest, const wchar16* destEnd) {
     return true;
 }
 
-inline size_t WriteSymbol(wchar32 s, wchar32*& dest) {
+inline size_t WriteSymbol(wchar32 s, wchar32*& dest) noexcept {
     *(dest++) = s;
     return 1;
 }
 
-inline bool WriteSymbol(wchar32 s, wchar32*& dest, const wchar32* destEnd) {
+inline bool WriteSymbol(wchar32 s, wchar32*& dest, const wchar32* destEnd) noexcept {
     Y_ASSERT(dest < destEnd);
 
     *(dest++) = s;
@@ -176,7 +198,7 @@ inline bool WriteSymbol(wchar32 s, wchar32*& dest, const wchar32* destEnd) {
 }
 
 template <class T>
-inline void NDetail::WriteSurrogatePair(wchar32 s, T& dest) {
+inline void ::NDetail::WriteSurrogatePair(wchar32 s, T& dest) noexcept {
     const wchar32 LEAD_OFFSET = 0xD800 - (0x10000 >> 10);
     Y_ASSERT(s > 0xFFFF && s < ::NUnicode::UnicodeInstancesLimit());
 
@@ -238,7 +260,7 @@ public:
 
 namespace NDetail {
     template <bool robust, typename TCharType>
-    inline void UTF8ToWideImplScalar(const unsigned char*& cur, const unsigned char* last, TCharType*& dest) {
+    inline void UTF8ToWideImplScalar(const unsigned char*& cur, const unsigned char* last, TCharType*& dest) noexcept {
         wchar32 rune = BROKEN_RUNE;
 
         while (cur != last) {
@@ -256,16 +278,29 @@ namespace NDetail {
         }
     }
 
+    template <typename TCharType>
+    inline void UTF16ToUTF32ImplScalar(const wchar16* cur, const wchar16* last, TCharType*& dest) noexcept {
+        wchar32 rune = BROKEN_RUNE;
+
+        while (cur != last) {
+            rune = ReadSymbolAndAdvance(cur, last);
+            Y_ASSERT(cur <= last);
+            WriteSymbol(rune, dest);
+        }
+    }
+
     template <class TCharType>
     inline void UTF8ToWideImplSSE41(const unsigned char*& /*cur*/, const unsigned char* /*last*/, TCharType*& /*dest*/) noexcept {
     }
 
     void UTF8ToWideImplSSE41(const unsigned char*& cur, const unsigned char* last, wchar16*& dest) noexcept;
-} //NDetail
+
+    void UTF8ToWideImplSSE41(const unsigned char*& cur, const unsigned char* last, wchar32*& dest) noexcept;
+}
 
 //! @return len if robust and position where encoding stopped if not
 template <bool robust, typename TCharType>
-inline size_t UTF8ToWideImpl(const char* text, size_t len, TCharType* dest, size_t& written) {
+inline size_t UTF8ToWideImpl(const char* text, size_t len, TCharType* dest, size_t& written) noexcept {
     const unsigned char* cur = reinterpret_cast<const unsigned char*>(text);
     const unsigned char* last = cur + len;
     TCharType* p = dest;
@@ -298,7 +333,7 @@ inline TUtf16String UTF8ToWide(const char* text, size_t len) {
 }
 
 template <bool robust, typename TCharType>
-inline bool UTF8ToWide(const char* text, size_t len, TCharType* dest, size_t& written) {
+inline bool UTF8ToWide(const char* text, size_t len, TCharType* dest, size_t& written) noexcept {
     return UTF8ToWideImpl<robust>(text, len, dest, written) == len;
 }
 
@@ -307,7 +342,7 @@ inline bool UTF8ToWide(const char* text, size_t len, TCharType* dest, size_t& wr
 //!            conversion stops if a broken symbol is met
 //! @return @c true if all the text converted successfully, @c false - a broken symbol was found
 template <typename TCharType>
-inline bool UTF8ToWide(const char* text, size_t len, TCharType* dest, size_t& written) {
+inline bool UTF8ToWide(const char* text, size_t len, TCharType* dest, size_t& written) noexcept {
     return UTF8ToWide<false>(text, len, dest, written);
 }
 
@@ -376,7 +411,20 @@ inline TString WideToUTF8(const wchar16* text, size_t len) {
     return s;
 }
 
+inline TString WideToUTF8(const wchar32* text, size_t len) {
+    TString s = TString::Uninitialized(WideToUTF8BufferSize(len));
+    size_t written = 0;
+    WideToUTF8(text, len, s.begin(), written);
+    Y_ASSERT(s.size() >= written);
+    s.remove(written);
+    return s;
+}
+
 inline TString WideToUTF8(const TWtringBuf w) {
+    return WideToUTF8(w.data(), w.size());
+}
+
+inline TString WideToUTF8(const TUtf32StringBuf w) {
     return WideToUTF8(w.data(), w.size());
 }
 
@@ -527,7 +575,7 @@ namespace NDetail {
     }
 #endif //_sse2_
 
-} // NDetail
+}
 
 //! returns @c true if character sequence has no symbols with value greater than 0x7F
 template <typename TChar>
@@ -588,6 +636,11 @@ inline TUtf16String ASCIIToWide(const TStringBuf s) {
     return CopyTo<TUtf16String>(s.begin(), s.end());
 }
 
+inline TUtf32String ASCIIToUTF32(const TStringBuf s) {
+    Y_ASSERT(IsStringASCII(s.begin(), s.end()));
+    return CopyTo<TUtf32String>(s.begin(), s.end());
+}
+
 //! returns @c true if string contains whitespace characters only
 inline bool IsSpace(const wchar16* s, size_t n) {
     if (n == 0)
@@ -614,58 +667,128 @@ void Collapse(TUtf16String& w);
 //! @return new length
 size_t Collapse(wchar16* s, size_t n);
 
-inline void ToLower(const wchar16* from, size_t len, wchar16* to) {
-    const wchar16* const end = from + len;
+//! Removes leading whitespace characters
+TWtringBuf StripLeft(const TWtringBuf text) noexcept Y_WARN_UNUSED_RESULT;
+void StripLeft(TUtf16String& text);
 
-    for (const wchar16* i = from; i != end;) {
-        wchar32 c = ToLower(ReadSymbolAndAdvance(i, end));
+//! Removes trailing whitespace characters
+TWtringBuf StripRight(const TWtringBuf text) noexcept Y_WARN_UNUSED_RESULT;
+void StripRight(TUtf16String& text);
 
-        WriteSymbol(c, to);
-    }
-}
+//! Removes leading and trailing whitespace characters
+TWtringBuf Strip(const TWtringBuf text) noexcept Y_WARN_UNUSED_RESULT;
+void Strip(TUtf16String& text);
 
-inline void ToLower(wchar16* s, size_t n) {
-    ToLower(s, n, s);
-}
+/* Check if given word is lowercase/uppercase. Will return false if string contains any
+ * non-alphabetical symbols. It is expected that `text` is a correct UTF-16 string.
+ *
+ * For example `IsLowerWord("hello")` will return `true`, when `IsLowerWord("hello there")` will
+ * return false because of the space in the middle of the string. Empty string is also considered
+ * lowercase.
+ */
+bool IsLowerWord(const TWtringBuf text) noexcept;
+bool IsUpperWord(const TWtringBuf text) noexcept;
 
-inline void ToUpper(const wchar16* from, size_t len, wchar16* to) {
-    const wchar16* const end = from + len;
+/* Will check if given word starts with capital letter and the rest of the word is lowercase. Will
+ * return `false` for empty string. See also `IsLowerWord`.
+ */
+bool IsTitleWord(const TWtringBuf text) noexcept;
 
-    for (const wchar16* i = from; i != end;) {
-        wchar32 c = ToUpper(ReadSymbolAndAdvance(i, end));
+/* Check if given string is lowercase/uppercase. Will return `true` if all alphabetic symbols are
+ * in proper case, all other symbols are ignored. It is expected that `text` is a correct UTF-16
+ * string.
+ *
+ * For example `IsLowerWord("hello")` will return `true` and `IsLowerWord("hello there")` will
+ * also return true because. Empty string is also considered lowercase.
+ *
+ * NOTE: for any case where `IsLowerWord` returns `true` `IsLower` will also return `true`.
+ */
+bool IsLower(const TWtringBuf text) noexcept;
+bool IsUpper(const TWtringBuf text) noexcept;
 
-        WriteSymbol(c, to);
-    }
-}
+/* Lowercase/uppercase given string inplace. Any alphabetic symbol will be converted to a proper
+ * case, the rest of the symbols will be kept the same. It is expected that `text` is a correct
+ * UTF-16 string.
+ *
+ * For example `ToLower("heLLo")` will return `"hello"`.
+ *
+ * @param text      String to modify
+ * @param pos       Position of the first character to modify
+ * @param count     Length of the substring
+ * @returns         `true` if `text` was changed
+ *
+ * NOTE: `pos` and `count` are measured in `wchar16`, not in codepoints.
+ */
+bool ToLower(TUtf16String& text, size_t pos = 0, size_t count = TUtf16String::npos);
+bool ToUpper(TUtf16String& text, size_t pos = 0, size_t count = TUtf16String::npos);
 
-inline void ToUpper(wchar16* s, size_t n) {
-    ToUpper(s, n, s);
-}
+/* Lowercase/uppercase given string inplace. Any alphabetic symbol will be converted to a proper
+* case, the rest of the symbols will be kept the same. It is expected that `text` is a correct
+* UTF-32 string.
+*
+* For example `ToLower("heLLo")` will return `"hello"`.
+*
+* @param text      String to modify
+* @param pos       Position of the first character to modify
+* @param count     Length of the substring
+* @returns         `true` if `text` was changed
+*
+* NOTE: `pos` and `count` are measured in `wchar16`, not in codepoints.
+*/
+bool ToLower(TUtf32String& /*text*/, size_t /*pos*/ = 0, size_t /*count*/ = TUtf16String::npos);
+bool ToUpper(TUtf32String& /*text*/, size_t /*pos*/ = 0, size_t /*count*/ = TUtf16String::npos);
 
-inline void ToTitle(const wchar16* from, size_t len, wchar16* to) {
-    if (len == 0)
-        return;
+/* Titlecase first symbol and lowercase the rest, see `ToLower` for more details.
+ */
+bool ToTitle(TUtf16String& text, size_t pos = 0, size_t count = TUtf16String::npos);
 
-    const wchar16* const end = from + len;
-    const wchar16* i = from;
+/* Titlecase first symbol and lowercase the rest, see `ToLower` for more details.
+*/
+bool ToTitle(TUtf32String& /*text*/, size_t /*pos*/ = 0, size_t /*count*/ = TUtf16String::npos);
 
-    wchar32 c = ToTitle(ReadSymbolAndAdvance(i, end));
-    WriteSymbol(c, to);
-    Y_ASSERT(i <= end);
+/* @param text      Pointer to the string to modify
+ * @param length    Length of the string to modify
+ * @param out       Pointer to the character array to write to
+ *
+ * NOTE: [text, text+length) and [out, out+length) should not interleave.
+ *
+ * TODO(yazevnul): replace these functions with `bool(const TWtringBuf, const TArrayRef<wchar16>)`
+ * overload.
+ */
+bool ToLower(const wchar16* text, size_t length, wchar16* out) noexcept;
+bool ToUpper(const wchar16* text, size_t length, wchar16* out) noexcept;
+bool ToTitle(const wchar16* text, size_t length, wchar16* out) noexcept;
 
-    while (i != end) {
-        c = ToLower(ReadSymbolAndAdvance(i, end));
+bool ToLower(const wchar32* text, size_t length, wchar32* out) noexcept;
+bool ToUpper(const wchar32* text, size_t length, wchar32* out) noexcept;
+bool ToTitle(const wchar32* text, size_t length, wchar32* out) noexcept;
 
-        WriteSymbol(c, to);
-    }
-}
+/* @param text      Pointer to the string to modify
+ * @param length    Length of the string to modify
+ *
+ * TODO(yazevnul): replace these functions with `bool(const TArrayRef<wchar16>)` overload.
+ */
+bool ToLower(wchar16* text, size_t length) noexcept;
+bool ToUpper(wchar16* text, size_t length) noexcept;
+bool ToTitle(wchar16* text, size_t length) noexcept;
 
-inline void ToTitle(wchar16* s, size_t n) {
-    ToTitle(s, n, s);
-}
+bool ToLower(wchar32* text, size_t length) noexcept;
+bool ToUpper(wchar32* text, size_t length) noexcept;
+bool ToTitle(wchar32* text, size_t length) noexcept;
 
-//! removes leading and trailing whitespace characters
-void Strip(TUtf16String& w);
+/* Convenience wrappers for `ToLower`, `ToUpper` and `ToTitle`.
+ */
+TUtf16String ToLowerRet(TUtf16String text, size_t pos = 0, size_t count = TUtf16String::npos) Y_WARN_UNUSED_RESULT;
+TUtf16String ToUpperRet(TUtf16String text, size_t pos = 0, size_t count = TUtf16String::npos) Y_WARN_UNUSED_RESULT;
+TUtf16String ToTitleRet(TUtf16String text, size_t pos = 0, size_t count = TUtf16String::npos) Y_WARN_UNUSED_RESULT;
+
+TUtf16String ToLowerRet(const TWtringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
+TUtf16String ToUpperRet(const TWtringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
+TUtf16String ToTitleRet(const TWtringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
+
+TUtf32String ToLowerRet(const TUtf32StringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
+TUtf32String ToUpperRet(const TUtf32StringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
+TUtf32String ToTitleRet(const TUtf32StringBuf text, size_t pos = 0, size_t count = TWtringBuf::npos) Y_WARN_UNUSED_RESULT;
 
 //! replaces the '<', '>' and '&' characters in string with '&lt;', '&gt;' and '&amp;' respectively
 // insertBr=true - replace '\r' and '\n' with "<BR>"
@@ -675,7 +798,7 @@ void EscapeHtmlChars(TUtf16String& str);
 //! returns number of characters in range. Handle surrogate pairs as one character.
 inline size_t CountWideChars(const wchar16* b, const wchar16* e) {
     size_t count = 0;
-    Y_ENSURE(b <= e, STRINGBUF("invalid iterators"));
+    Y_ENSURE(b <= e, TStringBuf("invalid iterators"));
     while (b < e) {
         b = SkipSymbol(b, e);
         ++count;
@@ -689,7 +812,7 @@ inline size_t CountWideChars(const TWtringBuf str) {
 
 //! checks whether the range is valid UTF-16 sequence
 inline bool IsValidUTF16(const wchar16* b, const wchar16* e) {
-    Y_ENSURE(b <= e, STRINGBUF("invalid iterators"));
+    Y_ENSURE(b <= e, TStringBuf("invalid iterators"));
     while (b < e) {
         wchar32 symbol = ReadSymbolAndAdvance(b, e);
         if (symbol == BROKEN_RUNE)

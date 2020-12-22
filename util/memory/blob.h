@@ -1,11 +1,11 @@
 #pragma once
 
-#include <util/system/defaults.h>
+#include <util/generic/fwd.h>
 #include <util/generic/utility.h>
+#include <util/system/defaults.h>
 
-class TString;
 class TMemoryMap;
-class TInputStream;
+class IInputStream;
 class TFile;
 class TBuffer;
 
@@ -45,7 +45,7 @@ private:
     };
 
 public:
-    using value_type = unsigned char;
+    using value_type = ui8;
     using const_reference = const value_type&;
     using const_pointer = const value_type*;
     using const_iterator = const_pointer;
@@ -53,12 +53,21 @@ public:
     /**
      * Constructs a null blob (data array points to nullptr).
      */
-    TBlob() noexcept;
+    TBlob() noexcept
+        : S_(nullptr, 0, nullptr)
+    {
+    }
 
     inline TBlob(const TBlob& r) noexcept
         : S_(r.S_)
     {
         Ref();
+    }
+
+    TBlob(TBlob&& r) noexcept
+        : TBlob()
+    {
+        this->Swap(r);
     }
 
     inline TBlob(const void* data, size_t length, TBase* base) noexcept
@@ -93,6 +102,7 @@ public:
     }
 
     /// Checks if the object has an empty data array.
+    Y_PURE_FUNCTION
     inline bool Empty() const noexcept {
         return !Length();
     }
@@ -121,6 +131,19 @@ public:
      * Some stl-like methods
      */
 
+    /// Returns a const reference to the data array.
+    /// result type is const ui8* which is not consistent with Data method above
+    /// but it's consistent with operator[], Begin and End methods below
+    /// Also it allows us to construct TArrayRef from TBlob
+    inline const_pointer data() const noexcept {
+        return static_cast<const_pointer>(Data());
+    }
+
+    /// Returns the size of the data array in bytes.
+    inline size_t size() const noexcept {
+        return Length();
+    }
+
     /// Returns the size of the data array in bytes.
     inline size_t Size() const noexcept {
         return Length();
@@ -138,14 +161,6 @@ public:
 
     inline value_type operator[](size_t n) const noexcept {
         return *(Begin() + n);
-    }
-
-    inline const char* operator~() const noexcept {
-        return AsCharPtr();
-    }
-
-    inline size_t operator+() const noexcept {
-        return Size();
     }
 
     /// Shortcut to SubBlob(0, len)
@@ -179,6 +194,8 @@ public:
     /// Creates a blob with a multi-threaded (atomic) refcounter. It maps the file on the path as data.
     static TBlob FromFile(const TFile& file);
 
+    // TODO: drop Precharged* functions.
+
     /// Creates a precharged blob with a single-threaded (non atomic) refcounter. It maps the file on the path as data.
     static TBlob PrechargedFromFileSingleThreaded(const TString& path);
 
@@ -190,6 +207,24 @@ public:
 
     /// Creates a precharged blob with a multi-threaded (atomic) refcounter. It maps the file content as data.
     static TBlob PrechargedFromFile(const TFile& file);
+
+    /// Creates a locked blob with a single-threaded (non atomic) refcounter. It maps the file on the path as data.
+    static TBlob LockedFromFileSingleThreaded(const TString& path);
+
+    /// Creates a locked blob with a multi-threaded (atomic) refcounter. It maps the file on the path as data.
+    static TBlob LockedFromFile(const TString& path);
+
+    /// Creates a locked blob with a single-threaded (non atomic) refcounter. It maps the file content as data.
+    static TBlob LockedFromFileSingleThreaded(const TFile& file);
+
+    /// Creates a locked blob with a multi-threaded (atomic) refcounter. It maps the file content as data.
+    static TBlob LockedFromFile(const TFile& file);
+
+    /// Creates a locked blob with a single-threaded (non atomic) refcounter from the mapped memory.
+    static TBlob LockedFromMemoryMapSingleThreaded(const TMemoryMap& map, ui64 offset, size_t length);
+
+    /// Creates a locked blob with a multi-threaded (atomic) refcounter from the mapped memory.
+    static TBlob LockedFromMemoryMap(const TMemoryMap& map, ui64 offset, size_t length);
 
     /// Creates a blob with a single-threaded (non atomic) refcounter from the mapped memory.
     static TBlob FromMemoryMapSingleThreaded(const TMemoryMap& map, ui64 offset, size_t length);
@@ -216,10 +251,10 @@ public:
     static TBlob FromFileContent(const TFile& file, ui64 offset, size_t length);
 
     /// Creates a blob from the stream content with a single-threaded (non atomic) refcounter.
-    static TBlob FromStreamSingleThreaded(TInputStream& in);
+    static TBlob FromStreamSingleThreaded(IInputStream& in);
 
     /// Creates a blob from the stream content with a multi-threaded (atomic) refcounter.
-    static TBlob FromStream(TInputStream& in);
+    static TBlob FromStream(IInputStream& in);
 
     /// Creates a blob with a single-threaded (non atomic) refcounter. No memory allocation, no content copy.
     /// @details The input object becomes empty.
@@ -229,19 +264,29 @@ public:
     /// @details The input object becomes empty.
     static TBlob FromBuffer(TBuffer& in);
 
-    /// Creates a blob from TString with a single-threaded (non atomic) refcounter. Doesn't copy it content.
+    /// Creates a blob from TString with a single-threaded (non atomic) refcounter.
     static TBlob FromStringSingleThreaded(const TString& s);
 
-    /// Creates a blob from TString with a multi-threaded (atomic) refcounter. Doesn't copy it content.
+    /// Creates a blob from TString with a single-threaded (non atomic) refcounter. Doesn't copy its content.
+    static TBlob FromStringSingleThreaded(TString&& s);
+
+    /// Creates a blob from TString with a multi-threaded (atomic) refcounter.
     static TBlob FromString(const TString& s);
+
+    /// Creates a blob from TString with a multi-threaded (atomic) refcounter. Doesn't copy its content.
+    static TBlob FromString(TString&& s);
 
 private:
     inline void Ref() noexcept {
-        S_.Base->Ref();
+        if (S_.Base) {
+            S_.Base->Ref();
+        }
     }
 
     inline void UnRef() noexcept {
-        S_.Base->UnRef();
+        if (S_.Base) {
+            S_.Base->UnRef();
+        }
     }
 
 private:

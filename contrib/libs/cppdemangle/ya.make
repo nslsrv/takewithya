@@ -11,18 +11,27 @@ NO_RUNTIME()
 
 NO_COMPILER_WARNINGS()
 
-IF (OS_WINDOWS)
-    SRCS(
-        demangle_stub.cpp
+IF (NOT USE_STL_SYSTEM)
+    ADDINCL(
+        contrib/libs/cxxsupp/libcxx/include
     )
-ELSE ()
-    CFLAGS(
-        -nostdinc++
-    )
+ENDIF()
 
-    SRCS(
-        demangle.cpp
-    )
-ENDIF ()
+CFLAGS(
+    -D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS
+)
+
+SRCS(
+    cxa_demangle.cpp
+)
 
 END()
+
+RECURSE(
+    filt
+    fuzz
+)
+
+RECURSE_FOR_TESTS(
+    ut
+)

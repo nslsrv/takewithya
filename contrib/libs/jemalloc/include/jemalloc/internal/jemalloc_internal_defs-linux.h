@@ -21,7 +21,7 @@
  * Hyper-threaded CPUs may need a special instruction inside spin loops in
  * order to yield to another virtual CPU.
  */
-#if defined(__arm__) || defined(__ARM_NEON) || defined(__aarch64__)
+#if defined(__arm__) || defined(__ARM_NEON) || defined(__aarch64__) || defined(__ppc__)
 #define CPU_SPINWAIT
 #else
 #define CPU_SPINWAIT __asm__ volatile("pause")
@@ -106,10 +106,14 @@
 #define JEMALLOC_PROF
 
 /* Use libunwind for profile backtracing if defined. */
-/* #undef JEMALLOC_PROF_LIBUNWIND */
+#ifdef _libunwind_
+#define JEMALLOC_PROF_LIBUNWIND
+#endif
 
 /* Use libgcc for profile backtracing if defined. */
+#ifndef _libunwind_
 #define JEMALLOC_PROF_LIBGCC
+#endif
 
 /* Use gcc intrinsics for profile backtracing if defined. */
 /* #undef JEMALLOC_PROF_GCC */

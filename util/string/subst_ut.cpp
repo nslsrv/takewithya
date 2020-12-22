@@ -2,12 +2,12 @@
 #include "subst.h"
 #include <string>
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
+Y_UNIT_TEST_SUITE(TStringSubst) {
     static const size_t MIN_FROM_CTX = 4;
-    static const yvector<TString> ALL_FROM{TString("F"), TString("FF")};
-    static const yvector<TString> ALL_TO{TString(""), TString("T"), TString("TT"), TString("TTT")};
+    static const TVector<TString> ALL_FROM{TString("F"), TString("FF")};
+    static const TVector<TString> ALL_TO{TString(""), TString("T"), TString("TT"), TString("TTT")};
 
     static void AssertSubstGlobal(const TString& sFrom, const TString& sTo, const TString& from, const TString& to, const size_t fromPos, const size_t numSubst) {
         TString s = sFrom;
@@ -24,9 +24,9 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalNoSubstA) {
+    Y_UNIT_TEST(TestSubstGlobalNoSubstA) {
         for (const auto& from : ALL_FROM) {
-            const size_t fromSz = +from;
+            const size_t fromSz = from.size();
             const size_t minSz = fromSz;
             const size_t maxSz = fromSz + MIN_FROM_CTX;
             for (size_t sz = minSz; sz <= maxSz; ++sz) {
@@ -40,9 +40,9 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalNoSubstB) {
+    Y_UNIT_TEST(TestSubstGlobalNoSubstB) {
         for (const auto& from : ALL_FROM) {
-            const size_t fromSz = +from;
+            const size_t fromSz = from.size();
             const size_t minSz = fromSz;
             const size_t maxSz = fromSz + MIN_FROM_CTX;
             for (size_t sz = minSz; sz <= maxSz; ++sz) {
@@ -61,10 +61,10 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
         }
     }
 
-    static void DoTestSubstGlobal(yvector<TString> & parts, const size_t minBeg, const size_t sz,
+    static void DoTestSubstGlobal(TVector<TString> & parts, const size_t minBeg, const size_t sz,
                                   const TString& from, const size_t fromPos, const size_t numSubst) {
         const size_t numLeft = numSubst - parts.size();
-        for (size_t fromBeg = minBeg; fromBeg <= sz - numLeft * +from; ++fromBeg) {
+        for (size_t fromBeg = minBeg; fromBeg <= sz - numLeft * from.size(); ++fromBeg) {
             if (parts.empty()) {
                 parts.emplace_back(fromBeg, '.');
             } else {
@@ -72,16 +72,16 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
             }
 
             if (numLeft == 1) {
-                parts.emplace_back(sz - fromBeg - +from, '.');
+                parts.emplace_back(sz - fromBeg - from.size(), '.');
                 TString sFrom = JoinSeq(from, parts);
-                UNIT_ASSERT_VALUES_EQUAL_C(+sFrom, sz, sFrom);
+                UNIT_ASSERT_VALUES_EQUAL_C(sFrom.size(), sz, sFrom);
                 for (const auto& to : ALL_TO) {
                     TString sTo = JoinSeq(to, parts);
                     AssertSubstGlobal(sFrom, sTo, from, to, fromPos, numSubst);
                 }
                 parts.pop_back();
             } else {
-                DoTestSubstGlobal(parts, fromBeg + +from, sz, from, fromPos, numSubst);
+                DoTestSubstGlobal(parts, fromBeg + from.size(), sz, from, fromPos, numSubst);
             }
 
             parts.pop_back();
@@ -89,9 +89,9 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
     }
 
     static void DoTestSubstGlobal(size_t numSubst) {
-        yvector<TString> parts;
+        TVector<TString> parts;
         for (const auto& from : ALL_FROM) {
-            const size_t fromSz = +from;
+            const size_t fromSz = from.size();
             const size_t minSz = numSubst * fromSz;
             const size_t maxSz = numSubst * (fromSz + MIN_FROM_CTX);
             for (size_t sz = minSz; sz <= maxSz; ++sz) {
@@ -103,23 +103,23 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalSubst1) {
+    Y_UNIT_TEST(TestSubstGlobalSubst1) {
         DoTestSubstGlobal(1);
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalSubst2) {
+    Y_UNIT_TEST(TestSubstGlobalSubst2) {
         DoTestSubstGlobal(2);
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalSubst3) {
+    Y_UNIT_TEST(TestSubstGlobalSubst3) {
         DoTestSubstGlobal(3);
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalSubst4) {
+    Y_UNIT_TEST(TestSubstGlobalSubst4) {
         DoTestSubstGlobal(4);
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalOld) {
+    Y_UNIT_TEST(TestSubstGlobalOld) {
         TString s;
         s = "aaa";
         SubstGlobal(s, "a", "bb");
@@ -133,25 +133,66 @@ SIMPLE_UNIT_TEST_SUITE(TStringSubst) {
         s = "abcdefbcbcdfb";
         SubstGlobal(s, "bc", "bbc", 2);
         UNIT_ASSERT_EQUAL(s, TString("abcdefbbcbbcdfb"));
+        s = "Москва ~ Париж";
+        SubstGlobal(s, " ~ ", " ");
+        UNIT_ASSERT_EQUAL(s, TString("Москва Париж"));
     }
 
-    SIMPLE_UNIT_TEST(TestSubstCharGlobal) {
-        TUtf16String w = TUtf16String::FromAscii("abcdabcd");
-        SubstGlobal(w, TChar('b'), TChar('B'), 3);
-        UNIT_ASSERT_EQUAL(w, TUtf16String::FromAscii("abcdaBcd"));
+    Y_UNIT_TEST(TestSubstGlobalOldRet) {
+        const TString s1 = "aaa";
+        const TString s2 = SubstGlobalCopy(s1, "a", "bb");
+        UNIT_ASSERT_EQUAL(s2, TString("bbbbbb"));
+
+        const TString s3 = "aaa";
+        const TString s4 = SubstGlobalCopy(s3, "a", "b");
+        UNIT_ASSERT_EQUAL(s4, TString("bbb"));
+
+        const TString s5 = "aaa";
+        const TString s6 = SubstGlobalCopy(s5, "a", "");
+        UNIT_ASSERT_EQUAL(s6, TString(""));
+
+        const TString s7 = "abcdefbcbcdfb";
+        const TString s8 = SubstGlobalCopy(s7, "bc", "bbc", 2);
+        UNIT_ASSERT_EQUAL(s8, TString("abcdefbbcbbcdfb"));
+
+        const TString s9 = "Москва ~ Париж";
+        const TString s10 = SubstGlobalCopy(s9, " ~ ", " ");
+        UNIT_ASSERT_EQUAL(s10, TString("Москва Париж"));
+    }
+
+    Y_UNIT_TEST(TestSubstCharGlobal) {
+        TUtf16String w = u"abcdabcd";
+        SubstGlobal(w, wchar16('b'), wchar16('B'), 3);
+        UNIT_ASSERT_EQUAL(w, u"abcdaBcd");
 
         TString s = "aaa";
         SubstGlobal(s, 'a', 'b', 1);
         UNIT_ASSERT_EQUAL(s, TString("abb"));
     }
 
-    SIMPLE_UNIT_TEST(TestSubstStdString) {
+    Y_UNIT_TEST(TestSubstCharGlobalRet) {
+        const TUtf16String w1 = u"abcdabcd";
+        const TUtf16String w2 = SubstGlobalCopy(w1, wchar16('b'), wchar16('B'), 3);
+        UNIT_ASSERT_EQUAL(w2, u"abcdaBcd");
+
+        const TString s1 = "aaa";
+        const TString s2 = SubstGlobalCopy(s1, 'a', 'b', 1);
+        UNIT_ASSERT_EQUAL(s2, TString("abb"));
+    }
+
+    Y_UNIT_TEST(TestSubstStdString) {
         std::string s = "aaa";
         SubstGlobal(s, "a", "b", 1);
         UNIT_ASSERT_EQUAL(s, "abb");
     }
 
-    SIMPLE_UNIT_TEST(TestSubstGlobalChar) {
+    Y_UNIT_TEST(TestSubstStdStringRet) {
+        const std::string s1 = "aaa";
+        const std::string s2 = SubstGlobalCopy(s1, "a", "b", 1);
+        UNIT_ASSERT_EQUAL(s2, "abb");
+    }
+
+    Y_UNIT_TEST(TestSubstGlobalChar) {
         {
             const TString s = "a";
             const TString st = "b";

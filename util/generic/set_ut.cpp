@@ -1,14 +1,14 @@
 #include "set.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <utility>
 
 #include <algorithm>
 
-SIMPLE_UNIT_TEST_SUITE(YSetTest) {
-    SIMPLE_UNIT_TEST(TestSet1) {
-        yset<int, TLess<int>> s;
+Y_UNIT_TEST_SUITE(YSetTest) {
+    Y_UNIT_TEST(TestSet1) {
+        TSet<int, TLess<int>> s;
         UNIT_ASSERT(!s);
         UNIT_ASSERT(s.count(42) == 0);
         s.insert(42);
@@ -20,8 +20,8 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         UNIT_ASSERT(count == 1);
     }
 
-    SIMPLE_UNIT_TEST(TestSet2) {
-        using int_set = yset<int, TLess<int>>;
+    Y_UNIT_TEST(TestSet2) {
+        using int_set = TSet<int, TLess<int>>;
         int_set s;
         std::pair<int_set::iterator, bool> p = s.insert(42);
         UNIT_ASSERT(p.second == true);
@@ -45,8 +45,8 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         UNIT_ASSERT(distance(s3.begin(), s3.end()) == 5);
     }
 
-    SIMPLE_UNIT_TEST(TestErase) {
-        yset<int, TLess<int>> s;
+    Y_UNIT_TEST(TestErase) {
+        TSet<int, TLess<int>> s;
         s.insert(1);
         s.erase(s.begin());
         UNIT_ASSERT(s.empty());
@@ -55,49 +55,49 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         UNIT_ASSERT(nb == 0);
     }
 
-    SIMPLE_UNIT_TEST(TestInsert) {
-        yset<int> s;
-        yset<int>::iterator i = s.insert(s.end(), 0);
+    Y_UNIT_TEST(TestInsert) {
+        TSet<int> s;
+        TSet<int>::iterator i = s.insert(s.end(), 0);
         UNIT_ASSERT(*i == 0);
     }
 
-    SIMPLE_UNIT_TEST(TestFind) {
-        yset<int> s;
+    Y_UNIT_TEST(TestFind) {
+        TSet<int> s;
 
         UNIT_ASSERT(s.find(0) == s.end());
 
-        yset<int> const& crs = s;
+        TSet<int> const& crs = s;
 
         UNIT_ASSERT(crs.find(0) == crs.end());
     }
 
-    SIMPLE_UNIT_TEST(TestHas) {
-        yset<int> s;
-        UNIT_ASSERT(!s.has(0));
+    Y_UNIT_TEST(TestHas) {
+        TSet<int> s;
+        UNIT_ASSERT(!s.contains(0));
 
-        yset<int> const& crs = s;
-        UNIT_ASSERT(!crs.has(0));
+        TSet<int> const& crs = s;
+        UNIT_ASSERT(!crs.contains(0));
 
         s.insert(1);
         s.insert(42);
         s.insert(100);
         s.insert(2);
 
-        UNIT_ASSERT(s.has(1));
-        UNIT_ASSERT(s.has(2));
-        UNIT_ASSERT(s.has(42));
-        UNIT_ASSERT(s.has(100));
+        UNIT_ASSERT(s.contains(1));
+        UNIT_ASSERT(s.contains(2));
+        UNIT_ASSERT(s.contains(42));
+        UNIT_ASSERT(s.contains(100));
     }
 
-    SIMPLE_UNIT_TEST(TestBounds) {
+    Y_UNIT_TEST(TestBounds) {
         int array1[] = {1, 3, 6, 7};
-        yset<int> s(array1, array1 + sizeof(array1) / sizeof(array1[0]));
-        yset<int> const& crs = s;
+        TSet<int> s(array1, array1 + sizeof(array1) / sizeof(array1[0]));
+        TSet<int> const& crs = s;
 
-        yset<int>::iterator sit;
-        yset<int>::const_iterator scit;
-        std::pair<yset<int>::iterator, yset<int>::iterator> pit;
-        std::pair<yset<int>::const_iterator, yset<int>::const_iterator> pcit;
+        TSet<int>::iterator sit;
+        TSet<int>::const_iterator scit;
+        std::pair<TSet<int>::iterator, TSet<int>::iterator> pit;
+        std::pair<TSet<int>::const_iterator, TSet<int>::const_iterator> pcit;
 
         //Check iterator on mutable set
         sit = s.lower_bound(2);
@@ -155,45 +155,45 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         UNIT_ASSERT(*pcit.second == 7);
     }
 
-    SIMPLE_UNIT_TEST(TestImplementationCheck) {
-        yset<int> tree;
+    Y_UNIT_TEST(TestImplementationCheck) {
+        TSet<int> tree;
         tree.insert(1);
-        yset<int>::iterator it = tree.begin();
+        TSet<int>::iterator it = tree.begin();
         int const& int_ref = *it++;
         UNIT_ASSERT(int_ref == 1);
 
         UNIT_ASSERT(it == tree.end());
         UNIT_ASSERT(it != tree.begin());
 
-        yset<int>::const_iterator cit = tree.begin();
+        TSet<int>::const_iterator cit = tree.begin();
         int const& int_cref = *cit++;
         UNIT_ASSERT(int_cref == 1);
     }
 
-    SIMPLE_UNIT_TEST(TestReverseIteratorTest) {
-        yset<int> tree;
+    Y_UNIT_TEST(TestReverseIteratorTest) {
+        TSet<int> tree;
         tree.insert(1);
         tree.insert(2);
 
         {
-            yset<int>::reverse_iterator rit(tree.rbegin());
+            TSet<int>::reverse_iterator rit(tree.rbegin());
             UNIT_ASSERT(*(rit++) == 2);
             UNIT_ASSERT(*(rit++) == 1);
             UNIT_ASSERT(rit == tree.rend());
         }
 
         {
-            yset<int> const& ctree = tree;
-            yset<int>::const_reverse_iterator rit(ctree.rbegin());
+            TSet<int> const& ctree = tree;
+            TSet<int>::const_reverse_iterator rit(ctree.rbegin());
             UNIT_ASSERT(*(rit++) == 2);
             UNIT_ASSERT(*(rit++) == 1);
             UNIT_ASSERT(rit == ctree.rend());
         }
     }
 
-    SIMPLE_UNIT_TEST(TestConstructorsAndAssignments) {
+    Y_UNIT_TEST(TestConstructorsAndAssignments) {
         {
-            using container = yset<int>;
+            using container = TSet<int>;
 
             container c1;
             c1.insert(100);
@@ -203,32 +203,32 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
 
             UNIT_ASSERT_VALUES_EQUAL(2, c1.size());
             UNIT_ASSERT_VALUES_EQUAL(2, c2.size());
-            UNIT_ASSERT(c1.has(100));
-            UNIT_ASSERT(c2.has(200));
+            UNIT_ASSERT(c1.contains(100));
+            UNIT_ASSERT(c2.contains(200));
 
             container c3(std::move(c1));
 
             UNIT_ASSERT_VALUES_EQUAL(0, c1.size());
             UNIT_ASSERT_VALUES_EQUAL(2, c3.size());
-            UNIT_ASSERT(c3.has(100));
+            UNIT_ASSERT(c3.contains(100));
 
             c2.insert(300);
             c3 = c2;
 
             UNIT_ASSERT_VALUES_EQUAL(3, c2.size());
             UNIT_ASSERT_VALUES_EQUAL(3, c3.size());
-            UNIT_ASSERT(c3.has(300));
+            UNIT_ASSERT(c3.contains(300));
 
             c2.insert(400);
             c3 = std::move(c2);
 
             UNIT_ASSERT_VALUES_EQUAL(0, c2.size());
             UNIT_ASSERT_VALUES_EQUAL(4, c3.size());
-            UNIT_ASSERT(c3.has(400));
+            UNIT_ASSERT(c3.contains(400));
         }
 
         {
-            using container = ymultiset<int>;
+            using container = TMultiSet<int>;
 
             container c1;
             c1.insert(100);
@@ -309,9 +309,9 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         using is_transparent = void;
     };
 
-    SIMPLE_UNIT_TEST(TestTemplateMethods) {
+    Y_UNIT_TEST(TestTemplateMethods) {
         {
-            using KeySet = yset<TKey, TKeyCmp>;
+            using KeySet = TSet<TKey, TKeyCmp>;
             KeySet keySet;
             keySet.insert(TKey(1));
             keySet.insert(TKey(2));
@@ -335,7 +335,7 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         }
 
         {
-            using KeySet = yset<TKey*, TKeyCmpPtr>;
+            using KeySet = TSet<TKey*, TKeyCmpPtr>;
             KeySet keySet;
             TKey key1(1), key2(2), key3(3), key4(4);
             keySet.insert(&key1);
@@ -358,7 +358,7 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
             UNIT_ASSERT(ckeySet.equal_range(2) != std::make_pair(ckeySet.begin(), ckeySet.end()));
         }
         {
-            using KeySet = ymultiset<TKey, TKeyCmp>;
+            using KeySet = TMultiSet<TKey, TKeyCmp>;
             KeySet keySet;
             keySet.insert(TKey(1));
             keySet.insert(TKey(2));
@@ -382,7 +382,7 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
         }
 
         {
-            using KeySet = ymultiset<TKey const volatile*, TKeyCmpPtr>;
+            using KeySet = TMultiSet<TKey const volatile*, TKeyCmpPtr>;
             KeySet keySet;
             TKey key1(1), key2(2), key3(3), key4(4);
             keySet.insert(&key1);
@@ -405,4 +405,4 @@ SIMPLE_UNIT_TEST_SUITE(YSetTest) {
             UNIT_ASSERT(ckeySet.equal_range(2) != std::make_pair(ckeySet.begin(), ckeySet.end()));
         }
     }
-} // SIMPLE_UNIT_TEST_SUITE
+} // Y_UNIT_TEST_SUITE

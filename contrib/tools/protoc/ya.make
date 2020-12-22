@@ -1,20 +1,29 @@
-TOOL()
 
-NO_COMPILER_WARNINGS()
 
-PEERDIR(
-    ADDINCL contrib/libs/protobuf
-    contrib/libs/protobuf/protoc
-)
+IF (USE_PREBUILT_TOOLS)
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/protoc/ya.make.prebuilt)
+ENDIF()
 
-SRCDIR(
-    contrib/libs/protobuf/compiler
-)
+IF (NOT PREBUILT)
+    PROGRAM()
 
-SRCS(
-    main.cc
-)
+    LICENSE(
+        BSD3
+    )
 
-SET(IDE_FOLDER "contrib/tools")
+    NO_COMPILER_WARNINGS()
 
-END()
+    PEERDIR(
+        contrib/libs/protoc
+    )
+    SRCDIR(
+        contrib/libs/protoc
+    )
+
+    SRCS(
+        src/google/protobuf/compiler/main.cc
+    )
+
+    INCLUDE(${ARCADIA_ROOT}/build/prebuilt/contrib/tools/protoc/ya.make.induced_deps)
+    END()
+ENDIF()

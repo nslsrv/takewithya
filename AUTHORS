@@ -1,3 +1,45 @@
 The following authors have created the source code of «CatBoost» published and distributed by YANDEX LLC as the owner:
 
+Chief researcher, author of the algorithm and of the first implementation:
+Andrey Gulin gulin@yandex-team.ru
+
+Team:
 Anna Veronika Dorogush annaveronika@
+Stanislav Kirillov kizill@
+Victor Omelyanenko
+Evgueni Petrov Evgueni-Petrov-aka-espetrov@
+Andrey Mishenko druxa@
+Pavel Kalinin pv-k@
+Vyacheslav Alipov alipov@yandex-team.ru
+Egor Samosvat sameg@yandex-team.ru
+Alexander Kobotov cobat@yandex-team.ru
+Dmitry Schelchkov
+Vasily Ershov noxoomo@
+
+GPU implementation:
+Vasily Ershov noxoomo@
+
+Python-package:
+Dmitry Donskov Donskov7@
+Andrey Saitgalin asaitgalin@
+Roman Nefyodov
+
+R-package:
+Vyacheslav Murashkin a4tunado
+Roman Nefyodov
+Anastasia Bezzubtseva nstbezz@
+Alexey Gorchakov algorc@
+
+Visualisation:
+Ivan Karev
+Sergey Berezhnoy
+Roman Rybalchenko
+
+Tutorials:
+Valeriy Babushkin VENHEADs@
+Mikhail Pershin pershinmr@
+Emil Kayumov emilkayumov@
+Evgeny Eltyshev
+
+CoreML support:
+Alexander Baranov

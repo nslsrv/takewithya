@@ -1,5 +1,5 @@
 #include "dynlib.h"
-#include "demangle.h"
+#include "demangle_impl.h"
 #include "platform.h"
 #include "backtrace.h"
 
@@ -170,7 +170,7 @@ TResolvedSymbol ResolveSymbol(void* sym, char* buf, size_t len) {
     Zero(dli);
 
     if (dladdr(sym, &dli) && dli.dli_sname) {
-        ret.Name = CopyTo(TCppDemangler().Demangle(dli.dli_sname), buf, len);
+        ret.Name = CopyTo(NPrivate::TCppDemangler().Demangle(dli.dli_sname), buf, len);
         ret.NearestSymbol = dli.dli_saddr;
     }
 
@@ -259,17 +259,17 @@ TResolvedSymbol ResolveSymbol(void* sym, char*, size_t) {
 }
 #endif
 
-void FormatBackTrace(TOutputStream* out, void* const* backtrace, size_t backtraceSize) {
+void FormatBackTrace(IOutputStream* out, void* const* backtrace, size_t backtraceSize) {
     char tmpBuf[1024];
 
     for (size_t i = 0; i < backtraceSize; ++i) {
         TResolvedSymbol rs = ResolveSymbol(backtrace[i], tmpBuf, sizeof(tmpBuf));
 
-        *out << rs.Name << "+" << ((ptrdiff_t)backtrace[i] - (ptrdiff_t)rs.NearestSymbol) << " (" << Hex((ptrdiff_t)backtrace[i], HF_ADDX) << ')' << Endl;
+        *out << rs.Name << "+" << ((ptrdiff_t)backtrace[i] - (ptrdiff_t)rs.NearestSymbol) << " (" << Hex((ptrdiff_t)backtrace[i], HF_ADDX) << ')' << '\n';
     }
 }
 
-void FormatBackTraceImpl(TOutputStream* out) {
+void FormatBackTraceImpl(IOutputStream* out) {
     void* array[300];
     const size_t s = BackTrace(array, Y_ARRAY_SIZE(array));
     FormatBackTrace(out, array, s);
@@ -277,7 +277,7 @@ void FormatBackTraceImpl(TOutputStream* out) {
 
 TFormatBackTraceFn FormatBackTraceFn = FormatBackTraceImpl;
 
-void FormatBackTrace(TOutputStream* out) {
+void FormatBackTrace(IOutputStream* out) {
     FormatBackTraceFn(out);
 }
 
@@ -285,6 +285,10 @@ TFormatBackTraceFn SetFormatBackTraceFn(TFormatBackTraceFn f) {
     TFormatBackTraceFn prevFn = FormatBackTraceFn;
     FormatBackTraceFn = f;
     return prevFn;
+}
+
+TFormatBackTraceFn GetFormatBackTraceFn() {
+    return FormatBackTraceFn;
 }
 
 void PrintBackTrace() {
@@ -300,7 +304,7 @@ void TBackTrace::Capture() {
     Size = BackTrace(Data, CAPACITY);
 }
 
-void TBackTrace::PrintTo(TOutputStream& out) const {
+void TBackTrace::PrintTo(IOutputStream& out) const {
     FormatBackTrace(&out, Data, Size);
 }
 

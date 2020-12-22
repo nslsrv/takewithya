@@ -6,7 +6,7 @@
 #include <util/string/ascii.h>
 
 //do not own any data
-struct TPathSplitStore: public yvector<TStringBuf> {
+struct TPathSplitStore: public TVector<TStringBuf> {
     TStringBuf Drive;
     bool IsAbsolute = false;
 
@@ -25,7 +25,7 @@ struct TPathSplitTraitsUnix: public TPathSplitStore {
     static constexpr char MainPathSep = '/';
 
     inline TString Reconstruct() const {
-        return DoReconstruct(STRINGBUF("/"));
+        return DoReconstruct(TStringBuf("/"));
     }
 
     static constexpr bool IsPathSep(const char c) noexcept {
@@ -44,7 +44,7 @@ struct TPathSplitTraitsWindows: public TPathSplitStore {
     static constexpr char MainPathSep = '\\';
 
     inline TString Reconstruct() const {
-        return DoReconstruct(STRINGBUF("\\"));
+        return DoReconstruct(TStringBuf("\\"));
     }
 
     static constexpr bool IsPathSep(char c) noexcept {
@@ -52,7 +52,7 @@ struct TPathSplitTraitsWindows: public TPathSplitStore {
     }
 
     static inline bool IsAbsolutePath(const TStringBuf path) noexcept {
-        return path && (IsPathSep(path[0]) || (+path > 1 && path[1] == ':' && IsAsciiAlpha(path[0]) && (+path == 2 || IsPathSep(path[2]))));
+        return path && (IsPathSep(path[0]) || (path.size() > 1 && path[1] == ':' && IsAsciiAlpha(path[0]) && (path.size() == 2 || IsPathSep(path[2]))));
     }
 
     void DoParseFirstPart(const TStringBuf part);

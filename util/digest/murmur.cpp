@@ -1,5 +1,6 @@
 #include "murmur.h"
-#include "iterator.h"
+
+#include <util/system/unaligned_mem.h>
 
 namespace NMurmurPrivate {
     //-----------------------------------------------------------------------------
@@ -16,7 +17,7 @@ namespace NMurmurPrivate {
     // 2. It will not produce the same results on little-endian and big-endian
     //    machines.
 
-    ui32 MurmurHash32(const void* key, size_t len, ui32 seed) noexcept {
+    Y_NO_INLINE ui32 MurmurHash32(const void* key, size_t len, ui32 seed) noexcept {
         const ui32 m = 0x5bd1e995;
         const int r = 24;
         ui32 h = ui32(seed ^ len);
@@ -63,7 +64,7 @@ namespace NMurmurPrivate {
 
     // 64-bit hash for 64-bit platforms
 
-    ui64 MurmurHash64(const void* key, size_t len, ui64 seed) {
+    Y_NO_INLINE ui64 MurmurHash64(const void* key, size_t len, ui64 seed) noexcept {
         const ui64 m = ULL(0xc6a4a7935bd1e995);
         const int r = 47;
 
@@ -115,6 +116,6 @@ namespace NMurmurPrivate {
     }
 }
 
-size_t MurmurHashSizeT(const char* buf, size_t len) {
+size_t MurmurHashSizeT(const char* buf, size_t len) noexcept {
     return MurmurHash<size_t>(buf, len);
 }

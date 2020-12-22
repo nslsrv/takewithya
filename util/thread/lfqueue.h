@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fwd.h"
+
 #include <util/generic/ptr.h>
 #include <util/system/atomic.h>
 #include <util/system/yassert.h>
@@ -16,7 +18,12 @@ struct TDefaultLFCounter {
     }
 };
 
-template <class T, class TCounter = TDefaultLFCounter>
+// @brief lockfree queue
+// @tparam T - the queue element, should be movable
+// @tparam TCounter, a observer class to count number of items in queue
+//                   be carifull, IncCount and DecCount can be called on a moved object and
+//                   it is TCounter class responsibility to check validity of passed object
+template <class T, class TCounter>
 class TLockFreeQueue: public TNonCopyable {
     struct TListNode {
         template <typename U>
@@ -63,10 +70,10 @@ class TLockFreeQueue: public TNonCopyable {
         }
     }
 
-    TRootNode* volatile JobQueue;
-    volatile TAtomic FreememCounter;
-    volatile TAtomic FreeingTaskCounter;
-    TRootNode* volatile FreePtr;
+    alignas(64) TRootNode* volatile JobQueue;
+    alignas(64) volatile TAtomic FreememCounter;
+    alignas(64) volatile TAtomic FreeingTaskCounter;
+    alignas(64) TRootNode* volatile FreePtr;
 
     void TryToFreeAsyncMemory() {
         TAtomic keepCounter = AtomicAdd(FreeingTaskCounter, 0);
@@ -170,7 +177,6 @@ class TLockFreeQueue: public TNonCopyable {
         AtomicSet(newRoot->PushQueue, head);
         for (;;) {
             TRootNode* curRoot = AtomicGet(JobQueue);
-            AtomicSet(newRoot->PushQueue, head);
             AtomicSet(tail->Next, AtomicGet(curRoot->PushQueue));
             AtomicSet(newRoot->PopQueue, AtomicGet(curRoot->PopQueue));
             newRoot->CopyCounter(curRoot);
@@ -186,6 +192,36 @@ class TLockFreeQueue: public TNonCopyable {
                 break;
             }
         }
+    }
+
+    template <typename TCollection>
+    static void FillCollection(TListNode* lst, TCollection* res) {
+        while (lst) {
+            res->emplace_back(std::move(lst->Data));
+            lst = AtomicGet(lst->Next);
+        }
+    }
+
+    /** Traverses a given list simultaneously creating its inversed version.
+     *  After that, fills a collection with a reversed version and returns the last visited lst's node.
+     */
+    template <typename TCollection>
+    static TListNode* FillCollectionReverse(TListNode* lst, TCollection* res) {
+        if (!lst) {
+            return nullptr;
+        }
+
+        TListNode* newCopy = nullptr;
+        do {
+            TListNode* newElem = new TListNode(std::move(lst->Data), newCopy);
+            newCopy = newElem;
+            lst = AtomicGet(lst->Next);
+        } while (lst);
+
+        FillCollection(newCopy, res);
+        EraseList(newCopy);
+
+        return lst;
     }
 
 public:
@@ -270,7 +306,7 @@ public:
                 newRoot = new TRootNode;
             AtomicSet(newRoot->PushQueue, nullptr);
             listInvertor.DoCopy(AtomicGet(curRoot->PushQueue));
-            newRoot->PopQueue = listInvertor.Copy;
+            AtomicSet(newRoot->PopQueue, listInvertor.Copy);
             newRoot->CopyCounter(curRoot);
             Y_ASSERT(AtomicGet(curRoot->PopQueue) == nullptr);
             if (AtomicCas(&JobQueue, newRoot, curRoot)) {
@@ -281,6 +317,31 @@ public:
                 AtomicSet(newRoot->PopQueue, nullptr);
             }
         }
+    }
+    template <typename TCollection>
+    void DequeueAll(TCollection* res) {
+        AsyncRef();
+
+        TRootNode* newRoot = new TRootNode;
+        TRootNode* curRoot;
+        do {
+            curRoot = AtomicGet(JobQueue);
+        } while (!AtomicCas(&JobQueue, newRoot, curRoot));
+
+        FillCollection(curRoot->PopQueue, res);
+
+        TListNode* toDeleteHead = curRoot->PushQueue;
+        TListNode* toDeleteTail = FillCollectionReverse(curRoot->PushQueue, res);
+        AtomicSet(curRoot->PushQueue, nullptr);
+
+        if (toDeleteTail) {
+            toDeleteTail->Next = curRoot->PopQueue;
+        } else {
+            toDeleteTail = curRoot->PopQueue;
+        }
+        AtomicSet(curRoot->PopQueue, nullptr);
+
+        AsyncUnref(curRoot, toDeleteHead);
     }
     bool IsEmpty() {
         AsyncRef();
@@ -298,10 +359,10 @@ public:
     }
 };
 
-template <class T, class TCounter = TDefaultLFCounter>
+template <class T, class TCounter>
 class TAutoLockFreeQueue {
 public:
-    using TRef = TAutoPtr<T>;
+    using TRef = THolder<T>;
 
     inline ~TAutoLockFreeQueue() {
         TRef tmp;
@@ -324,12 +385,12 @@ public:
 
     inline void Enqueue(TRef& t) {
         Queue.Enqueue(t.Get());
-        t.Release();
+        Y_UNUSED(t.Release());
     }
 
     inline void Enqueue(TRef&& t) {
         Queue.Enqueue(t.Get());
-        t.Release();
+        Y_UNUSED(t.Release());
     }
 
     inline bool IsEmpty() {

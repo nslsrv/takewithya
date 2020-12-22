@@ -69,9 +69,10 @@ namespace NPrivate {
     template <class T>
     struct TToString<T, false> {
         static inline TString Cvt(const T& t) {
-            TStringStream s;
-            s << t;
-            return s.Str();
+            TString s;
+            TStringOutput o(s);
+            o << t;
+            return s;
         }
     };
 }
@@ -81,7 +82,7 @@ namespace NPrivate {
  */
 template <class T>
 inline TString ToString(const T& t) {
-    using TR = typename TTypeTraits<T>::TNonQualified;
+    using TR = std::remove_cv_t<T>;
 
     return ::NPrivate::TToString<TR, std::is_arithmetic<TR>::value>::Cvt((const TR&)t);
 }
@@ -146,17 +147,17 @@ inline T FromString(const TChar* data, size_t len) {
 
 template <typename T, typename TChar>
 inline T FromString(const TChar* data) {
-    return ::FromString<T>(data, TCharTraits<TChar>::GetLength(data));
+    return ::FromString<T>(data, TCharTraits<TChar>::length(data));
 }
 
 template <class T>
 inline T FromString(const TStringBuf& s) {
-    return ::FromString<T>(~s, +s);
+    return ::FromString<T>(s.data(), s.size());
 }
 
 template <class T>
 inline T FromString(const TString& s) {
-    return ::FromString<T>(~s, +s);
+    return ::FromString<T>(s.data(), s.size());
 }
 
 template <>
@@ -166,12 +167,12 @@ inline TString FromString<TString>(const TString& s) {
 
 template <class T>
 inline T FromString(const TWtringBuf& s) {
-    return ::FromString<T, typename TWtringBuf::char_type>(~s, +s);
+    return ::FromString<T, typename TWtringBuf::char_type>(s.data(), s.size());
 }
 
 template <class T>
 inline T FromString(const TUtf16String& s) {
-    return ::FromString<T, typename TUtf16String::char_type>(~s, +s);
+    return ::FromString<T, wchar16>(s.data(), s.size());
 }
 
 namespace NPrivate {
@@ -201,12 +202,12 @@ inline ::NPrivate::TFromString<TChar> FromString(const TChar* data, size_t len) 
 
 template <typename TChar>
 inline ::NPrivate::TFromString<TChar> FromString(const TChar* data) {
-    return ::NPrivate::TFromString<TChar>(data, TCharTraits<TChar>::GetLength(data));
+    return ::NPrivate::TFromString<TChar>(data, TCharTraits<TChar>::length(data));
 }
 
 template <typename T>
 inline ::NPrivate::TFromString<typename T::TChar> FromString(const T& s) {
-    return ::NPrivate::TFromString<typename T::TChar>(~s, +s);
+    return ::NPrivate::TFromString<typename T::TChar>(s.data(), s.size());
 }
 
 // Conversion exception free versions
@@ -227,7 +228,7 @@ inline bool TryFromString(const TChar* data, size_t len, T& result) {
 
 template <typename T, typename TChar>
 inline bool TryFromString(const TChar* data, T& result) {
-    return TryFromString<T>(data, TCharTraits<TChar>::GetLength(data), result);
+    return TryFromString<T>(data, TCharTraits<TChar>::length(data), result);
 }
 
 template <class T, class TChar>
@@ -241,27 +242,27 @@ inline bool TryFromString(const TChar* data, const size_t len, T& result, const 
 
 template <class T>
 inline bool TryFromString(const TStringBuf& s, T& result) {
-    return TryFromString<T>(~s, +s, result);
+    return TryFromString<T>(s.data(), s.size(), result);
 }
 
 template <class T>
 inline bool TryFromString(const TString& s, T& result) {
-    return TryFromString<T>(~s, +s, result);
+    return TryFromString<T>(s.data(), s.size(), result);
 }
 
 template <class T>
 inline bool TryFromString(const TWtringBuf& s, T& result) {
-    return TryFromString<T>(~s, +s, result);
+    return TryFromString<T>(s.data(), s.size(), result);
 }
 
 template <class T>
 inline bool TryFromString(const TUtf16String& s, T& result) {
-    return TryFromString<T>(~s, +s, result);
+    return TryFromString<T>(s.data(), s.size(), result);
 }
 
 template <class T, class TStringType>
 inline bool TryFromStringWithDefault(const TStringType& s, T& result, const T& def) {
-    return TryFromString<T>(~s, +s, result, def);
+    return TryFromString<T>(s.data(), s.size(), result, def);
 }
 
 template <class T>
@@ -284,7 +285,7 @@ inline T FromString(const TChar* data, const size_t len, const T& def) {
 
 template <class T, class TStringType>
 inline T FromStringWithDefault(const TStringType& s, const T& def) {
-    return FromString<T>(~s, +s, def);
+    return FromString<T>(s.data(), s.size(), def);
 }
 
 template <class T>
@@ -305,7 +306,7 @@ size_t IntToString(T t, char* buf, size_t len);
 
 template <int base, class T>
 inline TString IntToString(T t) {
-    static_assert(std::is_arithmetic<typename TTypeTraits<T>::TNonQualified>::value, "expect std::is_arithmetic<typename TTypeTraits<T>::TNonQualified>::value");
+    static_assert(std::is_arithmetic<std::remove_cv_t<T>>::value, "expect std::is_arithmetic<std::remove_cv_t<T>>::value");
 
     char buf[256];
 
@@ -317,7 +318,7 @@ bool TryIntFromString(const TChar* data, size_t len, TInt& result);
 
 template <int base, class TInt, class TStringType>
 inline bool TryIntFromString(const TStringType& s, TInt& result) {
-    return TryIntFromString<base>(~s, +s, result);
+    return TryIntFromString<base>(s.data(), s.size(), result);
 }
 
 template <class TInt, int base, class TChar>
@@ -325,40 +326,22 @@ TInt IntFromString(const TChar* str, size_t len);
 
 template <class TInt, int base, class TChar>
 inline TInt IntFromString(const TChar* str) {
-    return IntFromString<TInt, base>(str, TCharTraits<TChar>::GetLength(str));
+    return IntFromString<TInt, base>(str, TCharTraits<TChar>::length(str));
 }
 
-template <class TInt, int base, class Troka>
-inline TInt IntFromString(const Troka& str) {
-    return IntFromString<TInt, base>(~str, +str);
+template <class TInt, int base, class TStringType>
+inline TInt IntFromString(const TStringType& str) {
+    return IntFromString<TInt, base>(str.data(), str.size());
 }
 
-/* Lite functions with no error check */
-template <class T>
-inline T strtonum_u(const char* s) noexcept { // lite 10-based unguarded
-    char cs;
-    do {
-        cs = *s++;
-    } while (cs && (ui8)cs <= 32);
-    bool neg;
-    if ((neg = (cs == '-')) || cs == '+')
-        cs = *s++;
-    int c = (int)(ui8)cs - '0';
-    T acc = 0;
-    for (; c >= 0 && c <= 9; c = (int)(ui8)*s++ - '0')
-        acc = acc * 10 + c;
-
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4146) //unary minus operator applied to unsigned type, result still unsigned
-#endif
-    if (neg)
-        acc = -acc;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-    return acc;
+static inline TString ToString(const TStringBuf str) {
+    return TString(str);
 }
 
-ui32 strtoui32(const char* s) noexcept; // strtonum_u<ui32>
-int yatoi(const char* s) noexcept;      // strtonum_u<long>
+static inline TUtf16String ToWtring(const TWtringBuf wtr) {
+    return TUtf16String(wtr);
+}
+
+static inline TUtf32String ToUtf32String(const TUtf32StringBuf wtr) {
+    return TUtf32String(wtr);
+}

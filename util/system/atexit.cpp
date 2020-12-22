@@ -1,13 +1,15 @@
 #include "atexit.h"
+#include "atomic.h"
 #include "yassert.h"
 #include "spinlock.h"
 #include "thread.h"
 
 #include <util/generic/ylimits.h>
-#include <util/generic/reinterpretcast.h>
 #include <util/generic/utility.h>
 #include <util/generic/deque.h>
 #include <util/generic/queue.h>
+
+#include <tuple>
 
 #include <cstdlib>
 
@@ -22,15 +24,7 @@ namespace {
 
         struct TCmp {
             inline bool operator()(const TFunc* l, const TFunc* r) const noexcept {
-                if (l->Priority < r->Priority) {
-                    return true;
-                }
-
-                if (l->Priority == r->Priority) {
-                    return l->Number < r->Number;
-                }
-
-                return false;
+                return std::tie(l->Priority, l->Number) < std::tie(r->Priority, r->Number);
             }
         };
 
@@ -58,6 +52,7 @@ namespace {
                     try {
                         c->Func(c->Ctx);
                     } catch (...) {
+                        // ¯\_(ツ)_/¯
                     }
                 }
             }
@@ -65,7 +60,7 @@ namespace {
 
         inline void Register(TAtExitFunc func, void* ctx, size_t priority) {
             with_lock (Lock_) {
-                Store_.push_back({func, ctx, priority, +Store_});
+                Store_.push_back({func, ctx, priority, Store_.size()});
                 Items_.push(&Store_.back());
             }
         }
@@ -77,41 +72,47 @@ namespace {
     private:
         TAdaptiveLock Lock_;
         TAtomic FinishStarted_;
-        ydeque<TFunc> Store_;
-        ypriority_queue<TFunc*, yvector<TFunc*>, TCmp> Items_;
+        TDeque<TFunc> Store_;
+        TPriorityQueue<TFunc*, TVector<TFunc*>, TCmp> Items_;
     };
 
     static TAtomic atExitLock = 0;
-    static TAtExit* atExit = nullptr;
+    static TAtExit* volatile atExitPtr = nullptr;
     alignas(TAtExit) static char atExitMem[sizeof(TAtExit)];
 
     static void OnExit() {
-        if (atExit) {
+        if (TAtExit* const atExit = AtomicGet(atExitPtr)) {
             atExit->Finish();
             atExit->~TAtExit();
-            atExit = nullptr;
+            AtomicSet(atExitPtr, nullptr);
         }
     }
 
     static inline TAtExit* Instance() {
-        if (!atExit) {
-            with_lock (atExitLock) {
-                if (!atExit) {
-                    atexit(OnExit);
-                    atExit = new (atExitMem) TAtExit;
-                }
-            }
+        if (TAtExit* const atExit = AtomicGet(atExitPtr)) {
+            return atExit;
         }
-
-        return atExit;
+        with_lock (atExitLock) {
+            if (TAtExit* const atExit = AtomicGet(atExitPtr)) {
+                return atExit;
+            }
+            atexit(OnExit);
+            TAtExit* const atExit = new (atExitMem) TAtExit;
+            AtomicSet(atExitPtr, atExit);
+            return atExit;
+        }
     }
 }
 
+void ManualRunAtExitFinalizers() {
+    OnExit();
+}
+
 bool ExitStarted() {
-    if (!atExit) {
-        return false;
+    if (TAtExit* const atExit = AtomicGet(atExitPtr)) {
+        return atExit->FinishStarted();
     }
-    return atExit->FinishStarted();
+    return false;
 }
 
 void AtExit(TAtExitFunc func, void* ctx, size_t priority) {
@@ -123,13 +124,13 @@ void AtExit(TAtExitFunc func, void* ctx) {
 }
 
 static void TraditionalCloser(void* ctx) {
-    ReinterpretCast<TTraditionalAtExitFunc>(ctx)();
+    reinterpret_cast<TTraditionalAtExitFunc>(ctx)();
 }
 
 void AtExit(TTraditionalAtExitFunc func) {
-    AtExit(TraditionalCloser, ReinterpretCast<void*>(func));
+    AtExit(TraditionalCloser, reinterpret_cast<void*>(func));
 }
 
 void AtExit(TTraditionalAtExitFunc func, size_t priority) {
-    AtExit(TraditionalCloser, ReinterpretCast<void*>(func), priority);
+    AtExit(TraditionalCloser, reinterpret_cast<void*>(func), priority);
 }

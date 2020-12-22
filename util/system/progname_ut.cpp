@@ -1,9 +1,9 @@
 #include "progname.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TProgramNameTest) {
-    SIMPLE_UNIT_TEST(TestIt) {
+Y_UNIT_TEST_SUITE(TProgramNameTest) {
+    Y_UNIT_TEST(TestIt) {
         TString progName = GetProgramName();
 
         try {

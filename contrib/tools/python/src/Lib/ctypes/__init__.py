@@ -1,6 +1,3 @@
-######################################################################
-#  This file should be kept compatible with Python 2.3, see PEP 291. #
-######################################################################
 """create and manipulate C data types in Python"""
 
 import os as _os, sys as _sys
@@ -13,6 +10,7 @@ from _ctypes import CFuncPtr as _CFuncPtr
 from _ctypes import __version__ as _ctypes_version
 from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
 from _ctypes import ArgumentError
+from .util import find_library as _find_library
 
 from struct import calcsize as _calcsize
 
@@ -345,6 +343,10 @@ class CDLL(object):
     """
     _func_flags_ = _FUNCFLAG_CDECL
     _func_restype_ = c_int
+    # default values for repr
+    _name = '<uninitialized>'
+    _handle = 0
+    _FuncPtr = None
 
     def __init__(self, name, mode=DEFAULT_MODE, handle=None,
                  use_errno=False,
@@ -361,8 +363,15 @@ class CDLL(object):
             _restype_ = self._func_restype_
         self._FuncPtr = _FuncPtr
 
+        self._builtin = {}
+
         if handle is None:
-            self._handle = _dlopen(self._name, mode)
+            if isinstance(self._name, dict):
+                self._builtin = self._name['symbols']
+                self._name = self._name['name']
+                self._handle = 0
+            else:
+                self._handle = _dlopen(self._name, mode)
         else:
             self._handle = handle
 
@@ -380,14 +389,20 @@ class CDLL(object):
         return func
 
     def __getitem__(self, name_or_ordinal):
-        func = self._FuncPtr((name_or_ordinal, self))
+        if self._builtin:
+            if name_or_ordinal not in self._builtin:
+                raise AttributeError("function %r not found" % name_or_ordinal)
+            func = self._FuncPtr(self._builtin[name_or_ordinal])
+        else:
+            func = self._FuncPtr((name_or_ordinal, self))
+
         if not isinstance(name_or_ordinal, (int, long)):
             func.__name__ = name_or_ordinal
         return func
 
 class PyDLL(CDLL):
-    """This class represents the Python library itself.  It allows to
-    access Python API functions.  The GIL is not released, and
+    """This class represents the Python library itself.  It allows
+    accessing Python API functions.  The GIL is not released, and
     Python exceptions are handled correctly.
     """
     _func_flags_ = _FUNCFLAG_CDECL | _FUNCFLAG_PYTHONAPI
@@ -445,18 +460,20 @@ class LibraryLoader(object):
 cdll = LibraryLoader(CDLL)
 pydll = LibraryLoader(PyDLL)
 
-if _os.name in ("nt", "ce"):
-    # comment next line: we haven't got dll, so use our binary itself (call LoadLibrary inside, not expected None as for POSIX)
-    #pythonapi = PyDLL("python dll", None, _sys.dllhandle)
-    pythonapi = PyDLL(_sys.executable)
-elif _sys.platform == "cygwin":
-    pythonapi = PyDLL("libpython%d.%d.dll" % _sys.version_info[:2])
-else:
+#if _os.name in ("nt", "ce"):
+#    pythonapi = PyDLL("python dll", None, _sys.dllhandle)
+#elif _sys.platform == "cygwin":
+#    pythonapi = PyDLL("libpython%d.%d.dll" % _sys.version_info[:2])
+#else:
+#    pythonapi = PyDLL(None)
+
+try:
+    pythonapi = PyDLL(None)
+except:
     try:
-        pythonapi = PyDLL(None)
-    except OSError:
-        from library.python.pythonapi import PythonAPI
-        pythonapi = PythonAPI()
+        pythonapi = PyDLL(_find_library('python'))
+    except:
+        pythonapi = PyDLL(dict(name='python', symbols={}))
 
 
 if _os.name in ("nt", "ce"):

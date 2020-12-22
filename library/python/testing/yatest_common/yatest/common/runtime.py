@@ -1,6 +1,13 @@
-import os
-import types
+import errno
 import functools
+import json
+import os
+import threading
+
+import six
+
+
+_lock = threading.Lock()
 
 
 def _get_ya_config():
@@ -8,6 +15,12 @@ def _get_ya_config():
         import pytest
         return pytest.config
     except (ImportError, AttributeError):
+        try:
+            import library.python.testing.recipe
+            if library.python.testing.recipe.ya:
+                return library.python.testing.recipe
+        except (ImportError, AttributeError):
+            pass
         raise NotImplementedError("yatest.common.* is only available from the testing runtime")
 
 
@@ -18,7 +31,7 @@ def _get_ya_plugin_instance():
 def _norm_path(path):
     if path is None:
         return None
-    assert isinstance(path, types.StringTypes)
+    assert isinstance(path, six.string_types)
     if "\\" in path:
         raise AssertionError("path {} contains Windows seprators \\ - replace them with '/'".format(path))
     return os.path.normpath(path)
@@ -63,11 +76,30 @@ def build_path(path=None):
 
 def java_path():
     """
-    Get path to java
+    [DEPRECATED] Get path to java
     :return: absolute path to java
     """
-    import runtime_java
+    from . import runtime_java
     return runtime_java.get_java_path(binary_path(os.path.join('contrib', 'tools', 'jdk')))
+
+
+def java_home():
+    """
+    Get jdk directory path
+    """
+    from . import runtime_java
+    jdk_dir = runtime_java.get_build_java_dir(binary_path('jdk'))
+    if not jdk_dir:
+        raise Exception("Cannot find jdk - make sure 'jdk' is added to the DEPENDS section and exists for the current platform")
+    return jdk_dir
+
+
+def java_bin():
+    """
+    Get path to the java binary
+    Requires DEPENDS(jdk)
+    """
+    return os.path.join(java_home(), "bin", "java")
 
 
 def data_path(path=None):
@@ -87,6 +119,25 @@ def output_path(path=None):
     :return: absolute path inside the test suite output dir
     """
     return _join_path(_get_ya_plugin_instance().output_dir, path)
+
+
+def ram_drive_path(path=None):
+    """
+    :param path: path relative to the ram drive.
+    :return: absolute path inside the ram drive directory or None if no ram drive was provided by environment.
+    """
+    if 'YA_TEST_RAM_DRIVE_PATH' in os.environ:
+        return _join_path(os.environ['YA_TEST_RAM_DRIVE_PATH'], path)
+
+
+def output_ram_drive_path(path=None):
+    """
+    Returns path inside ram drive directory which will be saved in the testing_out_stuff directory after testing.
+    Returns None if no ram drive was provided by environment.
+    :param path: path relative to the output ram drive directory
+    """
+    if 'YA_TEST_OUTPUT_RAM_DRIVE_PATH' in os.environ:
+        return _join_path(os.environ['YA_TEST_OUTPUT_RAM_DRIVE_PATH'], path)
 
 
 def binary_path(path=None):
@@ -151,8 +202,11 @@ def test_output_path(path=None):
     """
     import pytest
     test_out_dir = os.path.splitext(pytest.config.current_test_log_path)[0]
-    if not os.path.exists(test_out_dir):
+    try:
         os.makedirs(test_out_dir)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
     return _join_path(test_out_dir, path)
 
 
@@ -184,11 +238,21 @@ def cxx_compiler_path():
     return os.environ.get("YA_CXX")
 
 
+def global_resources():
+    try:
+        return json.loads(os.environ.get("YA_GLOBAL_RESOURCES"))
+    except (TypeError, ValueError):
+        return {}
+
+
 def _register_core(name, binary_path, core_path, bt_path, pbt_path):
     config = _get_ya_config()
-    config.test_cores_count += 1
+
+    with _lock:
+        config.test_cores_count += 1
+        count_str = '' if config.test_cores_count == 1 else str(config.test_cores_count)
+
     log_entry = config.test_logs[config.current_item_nodeid]
-    count_str = '' if config.test_cores_count == 1 else str(config.test_cores_count)
     if binary_path:
         log_entry['{} binary{}'.format(name, count_str)] = binary_path
     if core_path:
@@ -236,6 +300,11 @@ class Context(object):
 
     @property
     def sanitize(self):
+        """
+        Detect if current test run is under sanitizer
+
+        :return: one of `None`, 'address', 'memory', 'thread', 'undefined'
+        """
         return _get_ya_plugin_instance().get_context("sanitize")
 
     @property
@@ -249,5 +318,9 @@ class Context(object):
             return _flags_dict
         else:
             return dict()
+
+    def get_context_key(self, key):
+        return _get_ya_plugin_instance().get_context(key)
+
 
 context = Context()

@@ -1,45 +1,47 @@
 #include "input.h"
 #include "output.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/system/file.h>
 #include <util/system/yassert.h>
 
+#ifdef _win_
+#include <io.h>
+#endif
+
 class TMockStdIn {
 public:
     TMockStdIn()
-        : StdIn(0)
-        , StdInCopy(StdIn.Duplicate())
+        : StdInCopy(dup(0))
     {
     }
     ~TMockStdIn() {
-        StdIn.Release();
+        close(StdInCopy);
     }
 
     template <typename FuncType>
     void ForInput(const TStringBuf text, const FuncType& func) {
         TFile tempFile(TFile::Temporary("input_ut"));
-        tempFile.Write(~text, +text);
+        tempFile.Write(text.data(), text.size());
         tempFile.FlushData();
         tempFile.Seek(0, sSet);
 
         TFileHandle tempFh(tempFile.GetHandle());
-        StdIn.LinkTo(tempFh);
+        tempFh.Duplicate2Posix(0);
         tempFh.Release();
 
         func();
         Cin.ReadAll();
-        StdIn.LinkTo(StdInCopy);
+        dup2(StdInCopy, 0);
         clearerr(stdin);
     }
 
 private:
-    TFileHandle StdIn;
-    TFileHandle StdInCopy;
+    int StdInCopy;
 };
 
-class TNoInput: public TInputStream {
+class TNoInput: public IInputStream {
 public:
     TNoInput(ui64 size)
         : Size_(size)
@@ -57,7 +59,7 @@ private:
     ui64 Size_;
 };
 
-class TNoOutput: public TOutputStream {
+class TNoOutput: public IOutputStream {
 public:
     TNoOutput() = default;
 
@@ -66,7 +68,7 @@ protected:
     }
 };
 
-class TSimpleStringInput: public TInputStream {
+class TSimpleStringInput: public IInputStream {
 public:
     TSimpleStringInput(const TString& string)
         : String_(string)
@@ -89,8 +91,8 @@ private:
     TString String_;
 };
 
-SIMPLE_UNIT_TEST_SUITE(TInputTest) {
-    SIMPLE_UNIT_TEST(BigTransfer) {
+Y_UNIT_TEST_SUITE(TInputTest) {
+    Y_UNIT_TEST(BigTransfer) {
         ui64 size = 1024ull * 1024ull * 1024ull * 5;
         TNoInput input(size);
         TNoOutput output;
@@ -100,7 +102,7 @@ SIMPLE_UNIT_TEST_SUITE(TInputTest) {
         UNIT_ASSERT_VALUES_EQUAL(transferred, size);
     }
 
-    SIMPLE_UNIT_TEST(TestReadTo) {
+    Y_UNIT_TEST(TestReadTo) {
         /* This one tests default implementation of ReadTo. */
 
         TSimpleStringInput in("0123456789abc");
@@ -114,7 +116,7 @@ SIMPLE_UNIT_TEST_SUITE(TInputTest) {
         UNIT_ASSERT_VALUES_EQUAL(t, "89abc");
     }
 
-    SIMPLE_UNIT_TEST(TestReadLine) {
+    Y_UNIT_TEST(TestReadLine) {
         TSimpleStringInput in("1\n22\n333");
 
         TString t;
@@ -128,7 +130,7 @@ SIMPLE_UNIT_TEST_SUITE(TInputTest) {
         UNIT_ASSERT_VALUES_EQUAL(t, "333");
     }
 
-    SIMPLE_UNIT_TEST(TestStdInReadTo) {
+    Y_UNIT_TEST(TestStdInReadTo) {
         std::pair<std::pair<TStringBuf, char>, TStringBuf> testPairs[] = {
             {{"", '\n'}, ""},
             {{"\n", '\n'}, ""},

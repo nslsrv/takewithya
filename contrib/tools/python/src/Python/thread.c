@@ -50,7 +50,7 @@
    threads.
 
    This is valid for HP-UX 11.23 running on an ia64 system. If needed, add
-   a check of __ia64 to verify that we're running on a ia64 system instead
+   a check of __ia64 to verify that we're running on an ia64 system instead
    of a pa-risc system.
 */
 #ifdef __hpux
@@ -105,7 +105,7 @@ static size_t _pythread_stacksize = 0;
 #endif
 
 #ifdef SOLARIS_THREADS
-#include "thread_solaris.h"
+#error #include "thread_solaris.h"
 #endif
 
 #ifdef SUN_LWP

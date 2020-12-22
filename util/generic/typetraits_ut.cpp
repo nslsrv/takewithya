@@ -1,6 +1,9 @@
 #include "typetraits.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
+
+#include <vector>
+#include <tuple>
 
 namespace {
     enum ETestEnum {
@@ -67,36 +70,7 @@ namespace {
     public:
         TEmptyClass Base;
     };
-
-    class TWithBitwiseComparableFlag {
-    public:
-        TWithBitwiseComparableFlag() = default;
-        TWithBitwiseComparableFlag(const TWithBitwiseComparableFlag&) = default;
-    };
-
-    class TWithBitwiseCopyableFlag {
-    public:
-        TWithBitwiseCopyableFlag() = default;
-        TWithBitwiseCopyableFlag(const TWithBitwiseCopyableFlag&) = default;
-    };
-
-    class TWithBitwiseSerializableFlag {
-    public:
-        TWithBitwiseSerializableFlag() = default;
-        TWithBitwiseSerializableFlag(const TWithBitwiseSerializableFlag&) = default;
-    };
-
-    class TWithAllTypeTraitFlags {
-    public:
-        TWithAllTypeTraitFlags() = default;
-        TWithAllTypeTraitFlags(const TWithAllTypeTraitFlags&) = default;
-    };
 }
-
-Y_DECLARE_TYPE_FLAGS(TWithBitwiseComparableFlag, NTypeTrait::BITWISE_COMPARABLE);
-Y_DECLARE_TYPE_FLAGS(TWithBitwiseCopyableFlag, NTypeTrait::BITWISE_COPYABLE);
-Y_DECLARE_TYPE_FLAGS(TWithBitwiseSerializableFlag, NTypeTrait::BITWISE_SERIALIZABLE);
-Y_DECLARE_TYPE_FLAGS(TWithAllTypeTraitFlags, NTypeTrait::BITWISE_SERIALIZABLE | NTypeTrait::BITWISE_COPYABLE | NTypeTrait::BITWISE_COMPARABLE);
 
 #define ASSERT_SAME_TYPE(x, y)                     \
     {                                              \
@@ -104,13 +78,13 @@ Y_DECLARE_TYPE_FLAGS(TWithAllTypeTraitFlags, NTypeTrait::BITWISE_SERIALIZABLE | 
         UNIT_ASSERT_C(x_, #x " != " #y);           \
     }
 
-SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
-    SIMPLE_UNIT_TEST(TestIsSame) {
+Y_UNIT_TEST_SUITE(TTypeTraitsTest) {
+    Y_UNIT_TEST(TestIsSame) {
         UNIT_ASSERT((std::is_same<int, int>::value));
         UNIT_ASSERT(!(std::is_same<signed int, unsigned int>::value));
     }
 
-    SIMPLE_UNIT_TEST(TestRemoveReference) {
+    Y_UNIT_TEST(TestRemoveReference) {
         ASSERT_SAME_TYPE(std::remove_reference_t<int>, int);
         ASSERT_SAME_TYPE(std::remove_reference_t<const int>, const int);
         ASSERT_SAME_TYPE(std::remove_reference_t<int&>, int);
@@ -122,29 +96,23 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         ASSERT_SAME_TYPE(std::remove_reference_t<TIncompleteType&>, TIncompleteType);
     }
 
-    SIMPLE_UNIT_TEST(TestRemoveConst) {
+    Y_UNIT_TEST(TestRemoveConst) {
         ASSERT_SAME_TYPE(std::remove_const_t<const int>, int);
     }
 
-    SIMPLE_UNIT_TEST(TestRemoveVolatile) {
+    Y_UNIT_TEST(TestRemoveVolatile) {
         ASSERT_SAME_TYPE(std::remove_volatile_t<volatile int>, int);
     }
 
-    SIMPLE_UNIT_TEST(TestRemoveCV) {
+    Y_UNIT_TEST(TestRemoveCV) {
         ASSERT_SAME_TYPE(std::remove_cv_t<const volatile int>, int);
     }
 
-    SIMPLE_UNIT_TEST(TestAsConst) {
-        int x = 0;
-        Y_UNUSED(x);
-        ASSERT_SAME_TYPE(decltype(AsConst(x)), const int&);
-    }
-
-    SIMPLE_UNIT_TEST(TestAddCV) {
+    Y_UNIT_TEST(TestAddCV) {
         ASSERT_SAME_TYPE(std::add_cv_t<int>, const volatile int);
     }
 
-    SIMPLE_UNIT_TEST(TestClass) {
+    Y_UNIT_TEST(TestClass) {
         UNIT_ASSERT(std::is_class<TString>::value);
         UNIT_ASSERT(!std::is_class<ETestEnum>::value);
         UNIT_ASSERT(!std::is_class<int>::value);
@@ -161,11 +129,6 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         UNIT_ASSERT(!std::is_arithmetic<T&>::value);
         UNIT_ASSERT(!std::is_arithmetic<T&&>::value);
         UNIT_ASSERT(!std::is_arithmetic<T*>::value);
-
-        UNIT_ASSERT(TTypeTraits<T>::IsValueType);
-        UNIT_ASSERT(TTypeTraits<const T>::IsValueType);
-        UNIT_ASSERT(TTypeTraits<volatile T>::IsValueType);
-        UNIT_ASSERT(TTypeTraits<const volatile T>::IsValueType);
 
         bool a;
 
@@ -205,35 +168,35 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         UNIT_ASSERT(!std::is_signed<ETypedEnum>::value);
     }
 
-    SIMPLE_UNIT_TEST(TestBool) {
+    Y_UNIT_TEST(TestBool) {
         TestArithmeticType<bool>();
         TestUnsignedIntType<bool>();
     }
 
-    SIMPLE_UNIT_TEST(TestUnsignedChar) {
+    Y_UNIT_TEST(TestUnsignedChar) {
         TestArithmeticType<unsigned char>();
         TestUnsignedIntType<unsigned char>();
     }
 
-    SIMPLE_UNIT_TEST(TestSizeT) {
+    Y_UNIT_TEST(TestSizeT) {
         TestArithmeticType<size_t>();
         TestUnsignedIntType<size_t>();
     }
 
-    SIMPLE_UNIT_TEST(TestInt) {
+    Y_UNIT_TEST(TestInt) {
         TestArithmeticType<int>();
         TestSignedIntType<int>();
     }
 
-    SIMPLE_UNIT_TEST(TestDouble) {
+    Y_UNIT_TEST(TestDouble) {
         TestArithmeticType<double>();
     }
 
-    SIMPLE_UNIT_TEST(TestLongDouble) {
+    Y_UNIT_TEST(TestLongDouble) {
         TestArithmeticType<long double>();
     }
 
-    SIMPLE_UNIT_TEST(TestAddRValueReference) {
+    Y_UNIT_TEST(TestAddRValueReference) {
         ASSERT_SAME_TYPE(std::add_rvalue_reference_t<int>, int&&);
         ASSERT_SAME_TYPE(std::add_rvalue_reference_t<int const&>, int const&);
         ASSERT_SAME_TYPE(std::add_rvalue_reference_t<int*>, int*&&);
@@ -242,7 +205,7 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         ASSERT_SAME_TYPE(std::add_rvalue_reference_t<void>, void);
     }
 
-    SIMPLE_UNIT_TEST(TestIsEmpty) {
+    Y_UNIT_TEST(TestIsEmpty) {
         UNIT_ASSERT(std::is_empty<TEmptyClass>::value);
         UNIT_ASSERT(std::is_empty<TEmptyDerivedClass>::value);
         UNIT_ASSERT(std::is_empty<TAnotherEmptyClass>::value);
@@ -255,7 +218,7 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         UNIT_ASSERT(!std::is_empty<TNonEmptyDerivedClass>::value);
     }
 
-    SIMPLE_UNIT_TEST(TestIsStandardLayout) {
+    Y_UNIT_TEST(TestIsStandardLayout) {
         UNIT_ASSERT(std::is_standard_layout<TStdLayoutClass1>::value);
         UNIT_ASSERT(std::is_standard_layout<TStdLayoutClass2>::value);
         UNIT_ASSERT(!std::is_standard_layout<TNonStdLayoutClass1>::value);
@@ -264,7 +227,7 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         UNIT_ASSERT(!std::is_standard_layout<TNonStdLayoutClass4>::value);
     }
 
-    SIMPLE_UNIT_TEST(TestIsStdPod) {
+    Y_UNIT_TEST(TestIsStdPod) {
         UNIT_ASSERT(std::is_pod<TPodClass>::value);
         UNIT_ASSERT(!std::is_pod<TNonPodClass>::value);
         UNIT_ASSERT(std::is_pod<int>::value);
@@ -274,14 +237,13 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         UNIT_ASSERT(std::is_pod<long>::value);
     }
 
-    template <typename T>
+	template <typename T>
     void TestAllTypeTraitFlagsSet() {
-        UNIT_ASSERT(TTypeTraits<T>::IsBitwiseComparable);
         UNIT_ASSERT(TTypeTraits<T>::IsBitwiseCopyable);
         UNIT_ASSERT(TTypeTraits<T>::IsBitwiseSerializable);
     }
 
-    SIMPLE_UNIT_TEST(TestUserTypeTrait) {
+    Y_UNIT_TEST(TestUserTypeTrait) {
         TestAllTypeTraitFlagsSet<int>();
         TestAllTypeTraitFlagsSet<float>();
         TestAllTypeTraitFlagsSet<double>();
@@ -289,52 +251,14 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTest) {
         TestAllTypeTraitFlagsSet<long>();
         TestAllTypeTraitFlagsSet<TPodClass>();
 
-        UNIT_ASSERT(TTypeTraits<TWithBitwiseComparableFlag>::IsBitwiseComparable);
-        UNIT_ASSERT(TTypeTraits<TWithBitwiseSerializableFlag>::IsBitwiseSerializable);
-        UNIT_ASSERT(TTypeTraits<TWithBitwiseCopyableFlag>::IsBitwiseCopyable);
-
-        UNIT_ASSERT(!TTypeTraits<TNonPodClass>::IsBitwiseComparable);
         UNIT_ASSERT(!TTypeTraits<TNonPodClass>::IsBitwiseSerializable);
         UNIT_ASSERT(!TTypeTraits<TNonPodClass>::IsBitwiseCopyable);
-
-        TestAllTypeTraitFlagsSet<TWithAllTypeTraitFlags>();
-    }
-
-    SIMPLE_UNIT_TEST(TestDecayArray) {
-        ASSERT_SAME_TYPE(TDecayArray<int[5]>, int*);
-        ASSERT_SAME_TYPE(TDecayArray<const int[5]>, const int*);
-
-        ASSERT_SAME_TYPE(TDecayArray<int>, int);
-        ASSERT_SAME_TYPE(TDecayArray<int*>, int*);
-        ASSERT_SAME_TYPE(TDecayArray<int* const>, int*);
-
-        ASSERT_SAME_TYPE(TDecayArray<char>, char);
-        ASSERT_SAME_TYPE(TDecayArray<const char(&)[2]>, const char*);
-
-        using TStringLiteralDecayed = TDecayArray<decltype("42")>;
-        UNIT_ASSERT(std::is_pointer<TStringLiteralDecayed>::value);
-
-        ASSERT_SAME_TYPE(std::remove_const_t<std::remove_pointer_t<TStringLiteralDecayed>>, char);
     }
 
     template <class T>
     using TTrySum = decltype(std::declval<T>() + std::declval<T>());
 
-    SIMPLE_UNIT_TEST(TestIsCorrectExpression) {
-        UNIT_ASSERT((!TIsCorrectExpression<TTrySum, TPodClass>::Result));
-        UNIT_ASSERT((TIsCorrectExpression<TTrySum, int>::Result));
-        UNIT_ASSERT((TIsCorrectExpression<TTrySum, double>::Result));
-        UNIT_ASSERT((!TIsCorrectExpression<TTrySum, int*>::Result));
-        UNIT_ASSERT((!TIsCorrectExpression<TTrySum, void*>::Result));
-    }
-
-    SIMPLE_UNIT_TEST(TestIsCallable) {
-        UNIT_ASSERT((TIsCallableWith<void(int, int), double, double>::Result));
-        UNIT_ASSERT((!TIsCallableWith<void(int, int), double>::Result));
-        UNIT_ASSERT((!TIsCallableWith<void(int, int), double, TPodClass>::Result));
-    }
-
-    SIMPLE_UNIT_TEST(TestIsTriviallyCopyable) {
+    Y_UNIT_TEST(TestIsTriviallyCopyable) {
         struct TPod {
             int value;
         };
@@ -485,7 +409,7 @@ namespace {
 
 #define UNIT_ASSERT_EQUAL_ENUM(expected, actual) UNIT_ASSERT_VALUES_EQUAL((bool)(expected), (bool)(actual))
 
-SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTestNg) {
+Y_UNIT_TEST_SUITE(TTypeTraitsTestNg) {
     template <typename T>
     void TestImpl() {
         //UNIT_ASSERT_EQUAL_ENUM(TTypeTraitsExpected<T>::IsPod, TTypeTraits<T>::IsPod);
@@ -504,7 +428,7 @@ SIMPLE_UNIT_TEST_SUITE(TTypeTraitsTestNg) {
     }
 
 #define TYPE_TEST(name, type) \
-    SIMPLE_UNIT_TEST(name) {  \
+    Y_UNIT_TEST(name) {       \
         TestImpl<type>();     \
     }
 
@@ -554,3 +478,14 @@ static_assert(std::is_same<i8, TFixedWidthSignedInt<ui8>>::value, "");
 static_assert(std::is_same<i16, TFixedWidthSignedInt<ui16>>::value, "");
 static_assert(std::is_same<i32, TFixedWidthSignedInt<ui32>>::value, "");
 static_assert(std::is_same<i64, TFixedWidthSignedInt<ui64>>::value, "");
+
+// test for TIsSpecializationOf
+static_assert(TIsSpecializationOf<std::vector, std::vector<int>>::value, "");
+static_assert(TIsSpecializationOf<std::tuple, std::tuple<int, double, char>>::value, "");
+static_assert(!TIsSpecializationOf<std::vector, std::tuple<int, double, char>>::value, "");
+static_assert(!TIsSpecializationOf<std::pair, std::vector<int>>::value, "");
+
+// test for TIsIterable
+static_assert(TIsIterable<std::vector<int>>::value, "");
+static_assert(!TIsIterable<int>::value, "");
+static_assert(TIsIterable<int[42]>::value, "");

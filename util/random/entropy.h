@@ -1,21 +1,21 @@
 #pragma once
 
 class TBuffer;
-class TInputStream;
+class IInputStream;
 
 /*
  * fast entropy pool, based on good prng, can lock for some time
  * initialized with some bits from system entropy pool
  * think as /dev/urandom replacement
  */
-TInputStream& EntropyPool();
+IInputStream& EntropyPool();
 
 /*
  * fast(non-blocking) entropy pool, useful for seeding PRNGs
  */
-TInputStream& Seed();
+IInputStream& Seed();
 
 /*
- * initial host entropy data
+ * Re-initialize entropy pool - useful after forking in multi-process programs.
  */
-const TBuffer& HostEntropy();
+void ResetEntropyPool();

@@ -1,4 +1,4 @@
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #ifdef _unix_
 #include <sys/resource.h>
@@ -11,10 +11,10 @@
 #include <cstring>
 #include <cstdio>
 
-SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
+Y_UNIT_TEST_SUITE(TFileMapTest) {
     static const char* FileName_("./mappped_file");
 
-    SIMPLE_UNIT_TEST(TestFileMap) {
+    void BasicTest(TMemoryMapCommon::EOpenMode mode) {
         char data[] = "abcdefgh";
 
         TFile file(FileName_, CreateAlways | WrOnly);
@@ -22,7 +22,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         file.Close();
 
         {
-            TFileMap mappedFile(FileName_, TMemoryMapCommon::oRdWr);
+            TFileMap mappedFile(FileName_, mode);
             mappedFile.Map(0, mappedFile.Length());
             UNIT_ASSERT(mappedFile.MappedSize() == sizeof(data) && mappedFile.Length() == sizeof(data));
             UNIT_ASSERT(mappedFile.IsOpen());
@@ -51,9 +51,18 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestFileRemap) {
+    Y_UNIT_TEST(TestFileMap) {
+        BasicTest(TMemoryMapCommon::oRdWr);
+    }
+
+    Y_UNIT_TEST(TestFileMapPopulate) {
+        BasicTest(TMemoryMapCommon::oRdWr | TMemoryMapCommon::oPopulate);
+    }
+
+    Y_UNIT_TEST(TestFileRemap) {
         const char data1[] = "01234";
         const char data2[] = "abcdefg";
+        const char data3[] = "COPY";
         const char dataFinal[] = "012abcdefg";
         const size_t data2Shift = 3;
 
@@ -64,10 +73,25 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         {
             TFileMap mappedFile(FileName_, TMemoryMapCommon::oRdWr);
             mappedFile.Map(0, mappedFile.Length());
-            UNIT_ASSERT(mappedFile.MappedSize() == sizeof(data1) && mappedFile.Length() == sizeof(data1));
+            UNIT_ASSERT(mappedFile.MappedSize() == sizeof(data1) &&
+                        mappedFile.Length() == sizeof(data1));
 
             mappedFile.ResizeAndRemap(data2Shift, sizeof(data2));
             memcpy(mappedFile.Ptr(), data2, sizeof(data2));
+        }
+
+        {
+            TFileMap mappedFile(FileName_, TMemoryMapCommon::oCopyOnWr);
+            mappedFile.Map(0, mappedFile.Length());
+            UNIT_ASSERT(mappedFile.MappedSize() == sizeof(dataFinal) &&
+                        mappedFile.Length() == sizeof(dataFinal));
+
+            char* data = static_cast<char*>(mappedFile.Ptr());
+            UNIT_ASSERT(data[0] == '0');
+            UNIT_ASSERT(data[3] == 'a');
+            memcpy(data, data3, sizeof(data3));
+            UNIT_ASSERT(data[0] == 'C');
+            UNIT_ASSERT(data[3] == 'Y');
         }
 
         TFile resFile(FileName_, RdOnly);
@@ -80,7 +104,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestFileMapDbgName) {
+    Y_UNIT_TEST(TestFileMapDbgName) {
         // This test checks that dbgName passed to the TFileMap constructor is saved inside the object and appears
         // in subsequent error messages.
         const char* const dbgName = "THIS_IS_A_TEST";
@@ -102,23 +126,12 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestFileMapEmpty) {
-        TFile file(FileName_, CreateAlways | WrOnly);
-        file.Close();
-
-        TMappedFile map;
-        map.init(FileName_);
-        map.getData(0);
-
-        NFs::Remove(FileName_);
-    }
-
 #if defined(_asan_enabled_) || defined(_msan_enabled_)
 //setrlimit incompatible with asan runtime
 #elif defined(_cygwin_)
 //cygwin is not real unix :(
 #else
-    SIMPLE_UNIT_TEST(TestNotGreedy) {
+    Y_UNIT_TEST(TestNotGreedy) {
         unsigned page[4096 / sizeof(unsigned)];
 
 #if defined(_unix_)
@@ -151,10 +164,10 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
             file.Close();
 
             // Make 16 maps of our file, which would require 16*128M = 2Gb and exceed our 1Gb limit
-            yvector<TAutoPtr<TFileMap>> maps;
+            TVector<THolder<TFileMap>> maps;
 
             for (int i = 0; i < 16; ++i) {
-                maps.push_back(TAutoPtr<TFileMap>(new TFileMap(FileName_, TMemoryMapCommon::oRdOnly | TMemoryMapCommon::oNotGreedy)));
+                maps.emplace_back(MakeHolder<TFileMap>(FileName_, TMemoryMapCommon::oRdOnly | TMemoryMapCommon::oNotGreedy));
                 maps.back()->Map(i * sizeof(page), sizeof(page));
             }
 
@@ -198,7 +211,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
     }
 #endif
 
-    SIMPLE_UNIT_TEST(TestFileMappedArray) {
+    Y_UNIT_TEST(TestFileMappedArray) {
         {
             TFileMappedArray<ui32> mappedArray;
             ui32 data[] = {123, 456, 789, 10};
@@ -253,7 +266,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestMappedArray) {
+    Y_UNIT_TEST(TestMappedArray) {
         ui32 sz = 10;
 
         TMappedArray<ui32> mappedArray;
@@ -275,7 +288,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         UNIT_ASSERT(mappedArray.size() == 1000 && mappedArray2.size() == sz);
     }
 
-    SIMPLE_UNIT_TEST(TestMemoryMap) {
+    Y_UNIT_TEST(TestMemoryMap) {
         TFile file(FileName_, CreateAlways | WrOnly);
         file.Close();
 
@@ -303,7 +316,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestMemoryMapIsWritable) {
+    Y_UNIT_TEST(TestMemoryMapIsWritable) {
         TFile file(FileName_, CreateAlways | WrOnly);
         file.Close();
 
@@ -318,7 +331,7 @@ SIMPLE_UNIT_TEST_SUITE(TFileMapTest) {
         NFs::Remove(FileName_);
     }
 
-    SIMPLE_UNIT_TEST(TestFileMapIsWritable) {
+    Y_UNIT_TEST(TestFileMapIsWritable) {
         TFile file(FileName_, CreateAlways | WrOnly);
         file.Close();
         {

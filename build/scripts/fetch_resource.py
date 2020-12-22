@@ -1,13 +1,13 @@
 import urllib2
-import optparse
+import argparse
 import xmlrpclib
 
 
 def parse_args():
-    parser = optparse.OptionParser()
-    parser.add_option('-r', '--resource-id', dest='resource_id')
-    parser.add_option('-o', '--output', dest='output')
-    return parser.parse_args()[0]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-r', '--resource-id', type=int, required=True)
+    parser.add_argument('-o', '--output', required=True)
+    return parser.parse_args()
 
 
 def fetch(url, retries=4, timeout=5):
@@ -24,7 +24,7 @@ def fetch(url, retries=4, timeout=5):
 
 
 def fetch_resource(id_):
-    urls = xmlrpclib.ServerProxy("http://sandbox.yandex-team.ru/sandbox/xmlrpc").get_resource_http_links(id_)
+    urls = xmlrpclib.ServerProxy("https://sandbox.yandex-team.ru/sandbox/xmlrpc").get_resource_http_links(id_)
 
     for u in urls:
         try:
@@ -37,7 +37,7 @@ def fetch_resource(id_):
 
 
 if __name__ == '__main__':
-    opts = parse_args()
+    args = parse_args()
 
-    with open(opts.output, 'wb') as f:
-        f.write(fetch_resource(int(opts.resource_id)))
+    with open(args.output, 'wb') as f:
+        f.write(fetch_resource(int(args.resource_id)))

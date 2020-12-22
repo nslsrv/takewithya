@@ -56,7 +56,7 @@ must use the platform malloc heap(s), or shared memory, or C++ local storage or
 operator new), you must first allocate the object with your custom allocator,
 then pass its pointer to PyObject_{Init, InitVar} for filling in its Python-
 specific fields:  reference count, type pointer, possibly others.  You should
-be aware that Python no control over these objects because they don't
+be aware that Python has no control over these objects because they don't
 cooperate with the Python memory manager.  Such objects may not be eligible
 for automatic garbage collection and you have to make sure that they are
 released accordingly whenever their destructor gets called (cf. the specific
@@ -100,8 +100,7 @@ PyAPI_FUNC(void) PyObject_Free(void *);
 
 
 /* Macros */
-#ifdef WITH_PYMALLOC
-#ifdef PYMALLOC_DEBUG   /* WITH_PYMALLOC && PYMALLOC_DEBUG */
+#if defined(WITH_PYMALLOC) && defined(PYMALLOC_DEBUG)
 PyAPI_FUNC(void *) _PyObject_DebugMalloc(size_t nbytes);
 PyAPI_FUNC(void *) _PyObject_DebugRealloc(void *p, size_t nbytes);
 PyAPI_FUNC(void) _PyObject_DebugFree(void *p);
@@ -115,28 +114,17 @@ PyAPI_FUNC(void) _PyObject_DebugCheckAddressApi(char api, const void *p);
 PyAPI_FUNC(void *) _PyMem_DebugMalloc(size_t nbytes);
 PyAPI_FUNC(void *) _PyMem_DebugRealloc(void *p, size_t nbytes);
 PyAPI_FUNC(void) _PyMem_DebugFree(void *p);
-#define PyObject_MALLOC         _PyObject_DebugMalloc
-#define PyObject_Malloc         _PyObject_DebugMalloc
-#define PyObject_REALLOC        _PyObject_DebugRealloc
-#define PyObject_Realloc        _PyObject_DebugRealloc
-#define PyObject_FREE           _PyObject_DebugFree
-#define PyObject_Free           _PyObject_DebugFree
+#endif
 
-#else   /* WITH_PYMALLOC && ! PYMALLOC_DEBUG */
 #define PyObject_MALLOC         PyObject_Malloc
 #define PyObject_REALLOC        PyObject_Realloc
 #define PyObject_FREE           PyObject_Free
-#endif
-
-#else   /* ! WITH_PYMALLOC */
-#define PyObject_MALLOC         PyMem_MALLOC
-#define PyObject_REALLOC        PyMem_REALLOC
-#define PyObject_FREE           PyMem_FREE
-
-#endif  /* WITH_PYMALLOC */
-
 #define PyObject_Del            PyObject_Free
-#define PyObject_DEL            PyObject_FREE
+#define PyObject_DEL            PyObject_Free
+
+#ifdef PYMALLOC_DEBUG   /* WITH_PYMALLOC && PYMALLOC_DEBUG */
+PyAPI_FUNC(void) _PyObject_DebugMallocStats(void);
+#endif
 
 /* for source compatibility with 2.2 */
 #define _PyObject_Del           PyObject_Free
@@ -248,6 +236,20 @@ PyAPI_FUNC(PyVarObject *) _PyObject_GC_Resize(PyVarObject *, Py_ssize_t);
 /* for source compatibility with 2.2 */
 #define _PyObject_GC_Del PyObject_GC_Del
 
+/*
+ * Former over-aligned definition of PyGC_Head, used to compute the size of the
+ * padding for the new version below.
+ */
+union _gc_head;
+union _gc_head_old {
+    struct {
+        union _gc_head_old *gc_next;
+        union _gc_head_old *gc_prev;
+        Py_ssize_t gc_refs;
+    } gc;
+    long double dummy;
+};
+
 /* GC information is stored BEFORE the object structure. */
 typedef union _gc_head {
     struct {
@@ -255,7 +257,8 @@ typedef union _gc_head {
         union _gc_head *gc_prev;
         Py_ssize_t gc_refs;
     } gc;
-    long double dummy;  /* force worst-case alignment */
+    double dummy; /* Force at least 8-byte alignment. */
+    char dummy_padding[sizeof(union _gc_head_old)];
 } PyGC_Head;
 
 extern PyGC_Head *_PyGC_generation0;

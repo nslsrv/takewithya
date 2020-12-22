@@ -17,6 +17,18 @@
 #include "kmp_wrapper_malloc.h"
 #include "kmp_io.h"
 
+#ifdef __clang__
+#if __has_feature(address_sanitizer)
+extern "C" { // sanitizers API
+void __lsan_ignore_object(const void* p);
+}
+#else
+#define __lsan_ignore_object(p)
+#endif
+#else
+#define __lsan_ignore_object(p)
+#endif
+
 // Disable bget when it is not used
 #if KMP_USE_BGET
 
@@ -866,7 +878,7 @@ brel(  kmp_info_t *th, void *buf )
            released,  since  it's  negative to indicate that the buffer is
            allocated. */
 
-        register bufsize size = b->bh.bb.bsize;
+        bufsize size = b->bh.bb.bsize;
 
         /* Make the previous buffer the one we're working on. */
         KMP_DEBUG_ASSERT(BH((char *) b - b->bh.bb.prevfree)->bb.bsize == b->bh.bb.prevfree);
@@ -1607,6 +1619,9 @@ ___kmp_allocate_align( size_t size, size_t alignment KMP_SRC_LOC_DECL )
     #else
     descr.ptr_allocated = malloc_src_loc( descr.size_allocated KMP_SRC_LOC_PARM );
     #endif
+
+    __lsan_ignore_object(descr.ptr_allocated); // espetrov@yandex-team.ru: asan considers descr.ptr_allocated leaked because of address alignment arithmetics
+
     KE_TRACE( 10, (
         "   malloc( %d ) returned %p\n",
         (int) descr.size_allocated,

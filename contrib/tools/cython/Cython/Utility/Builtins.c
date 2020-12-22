@@ -109,13 +109,13 @@ static PyObject* __Pyx_PyExec3(PyObject* o, PyObject* globals, PyObject* locals)
         locals = globals;
     }
 
-    if (PyDict_GetItem(globals, PYIDENT("__builtins__")) == NULL) {
+    if (__Pyx_PyDict_GetItemStr(globals, PYIDENT("__builtins__")) == NULL) {
         if (PyDict_SetItem(globals, PYIDENT("__builtins__"), PyEval_GetBuiltins()) < 0)
             goto bad;
     }
 
     if (PyCode_Check(o)) {
-        if (PyCode_GetNumFree((PyCodeObject *)o) > 0) {
+        if (__Pyx_PyCode_HasFreeVars((PyCodeObject *)o)) {
             PyErr_SetString(PyExc_TypeError,
                 "code object passed to exec() may not contain free variables");
             goto bad;
@@ -128,6 +128,9 @@ static PyObject* __Pyx_PyExec3(PyObject* o, PyObject* globals, PyObject* locals)
     } else {
         PyCompilerFlags cf;
         cf.cf_flags = 0;
+#if PY_VERSION_HEX >= 0x030800A3
+        cf.cf_feature_version = PY_MINOR_VERSION;
+#endif
         if (PyUnicode_Check(o)) {
             cf.cf_flags = PyCF_SOURCE_IS_UTF8;
             s = PyUnicode_AsUTF8String(o);
@@ -168,19 +171,47 @@ static CYTHON_INLINE PyObject *__Pyx_GetAttr3(PyObject *, PyObject *, PyObject *
 
 //////////////////// GetAttr3 ////////////////////
 //@requires: ObjectHandling.c::GetAttr
+//@requires: Exceptions.c::PyThreadStateGet
+//@requires: Exceptions.c::PyErrFetchRestore
+//@requires: Exceptions.c::PyErrExceptionMatches
+
+static PyObject *__Pyx_GetAttr3Default(PyObject *d) {
+    __Pyx_PyThreadState_declare
+    __Pyx_PyThreadState_assign
+    if (unlikely(!__Pyx_PyErr_ExceptionMatches(PyExc_AttributeError)))
+        return NULL;
+    __Pyx_PyErr_Clear();
+    Py_INCREF(d);
+    return d;
+}
 
 static CYTHON_INLINE PyObject *__Pyx_GetAttr3(PyObject *o, PyObject *n, PyObject *d) {
     PyObject *r = __Pyx_GetAttr(o, n);
-    if (unlikely(!r)) {
-        if (!PyErr_ExceptionMatches(PyExc_AttributeError))
-            goto bad;
-        PyErr_Clear();
-        r = d;
-        Py_INCREF(d);
+    return (likely(r)) ? r : __Pyx_GetAttr3Default(d);
+}
+
+//////////////////// HasAttr.proto ////////////////////
+
+static CYTHON_INLINE int __Pyx_HasAttr(PyObject *, PyObject *); /*proto*/
+
+//////////////////// HasAttr ////////////////////
+//@requires: ObjectHandling.c::GetAttr
+
+static CYTHON_INLINE int __Pyx_HasAttr(PyObject *o, PyObject *n) {
+    PyObject *r;
+    if (unlikely(!__Pyx_PyBaseString_Check(n))) {
+        PyErr_SetString(PyExc_TypeError,
+                        "hasattr(): attribute name must be string");
+        return -1;
     }
-    return r;
-bad:
-    return NULL;
+    r = __Pyx_GetAttr(o, n);
+    if (unlikely(!r)) {
+        PyErr_Clear();
+        return 0;
+    } else {
+        Py_DECREF(r);
+        return 1;
+    }
 }
 
 //////////////////// Intern.proto ////////////////////
@@ -203,44 +234,64 @@ static PyObject* __Pyx_Intern(PyObject* s) {
     return s;
 }
 
-//////////////////// abs_int.proto ////////////////////
-
-static CYTHON_INLINE unsigned int __Pyx_abs_int(int x) {
-    if (unlikely(x == -INT_MAX-1))
-        return ((unsigned int)INT_MAX) + 1U;
-    return (unsigned int) abs(x);
-}
-
-//////////////////// abs_long.proto ////////////////////
-
-static CYTHON_INLINE unsigned long __Pyx_abs_long(long x) {
-    if (unlikely(x == -LONG_MAX-1))
-        return ((unsigned long)LONG_MAX) + 1U;
-    return (unsigned long) labs(x);
-}
-
 //////////////////// abs_longlong.proto ////////////////////
 
-static CYTHON_INLINE unsigned PY_LONG_LONG __Pyx_abs_longlong(PY_LONG_LONG x) {
-    if (unlikely(x == -PY_LLONG_MAX-1))
-        return ((unsigned PY_LONG_LONG)PY_LLONG_MAX) + 1U;
+static CYTHON_INLINE PY_LONG_LONG __Pyx_abs_longlong(PY_LONG_LONG x) {
 #if defined (__cplusplus) && __cplusplus >= 201103L
-    return (unsigned PY_LONG_LONG) std::abs(x);
+    return std::abs(x);
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-    return (unsigned PY_LONG_LONG) llabs(x);
-#elif defined (_MSC_VER) && defined (_M_X64)
+    return llabs(x);
+#elif defined (_MSC_VER)
     // abs() is defined for long, but 64-bits type on MSVC is long long.
-    // Use MS-specific _abs64 instead.
-    return (unsigned PY_LONG_LONG) _abs64(x);
+    // Use MS-specific _abs64() instead, which returns the original (negative) value for abs(-MAX-1)
+    return _abs64(x);
 #elif defined (__GNUC__)
     // gcc or clang on 64 bit windows.
-    return (unsigned PY_LONG_LONG) __builtin_llabs(x);
+    return __builtin_llabs(x);
 #else
     if (sizeof(PY_LONG_LONG) <= sizeof(Py_ssize_t))
         return __Pyx_sst_abs(x);
-    return (x<0) ? (unsigned PY_LONG_LONG)-x : (unsigned PY_LONG_LONG)x;
+    return (x<0) ? -x : x;
 #endif
 }
+
+
+//////////////////// py_abs.proto ////////////////////
+
+#if CYTHON_USE_PYLONG_INTERNALS
+static PyObject *__Pyx_PyLong_AbsNeg(PyObject *num);/*proto*/
+
+#define __Pyx_PyNumber_Absolute(x) \
+    ((likely(PyLong_CheckExact(x))) ? \
+         (likely(Py_SIZE(x) >= 0) ? (Py_INCREF(x), (x)) : __Pyx_PyLong_AbsNeg(x)) : \
+         PyNumber_Absolute(x))
+
+#else
+#define __Pyx_PyNumber_Absolute(x)  PyNumber_Absolute(x)
+#endif
+
+//////////////////// py_abs ////////////////////
+
+#if CYTHON_USE_PYLONG_INTERNALS
+static PyObject *__Pyx_PyLong_AbsNeg(PyObject *n) {
+    if (likely(Py_SIZE(n) == -1)) {
+        // digits are unsigned
+        return PyLong_FromLong(((PyLongObject*)n)->ob_digit[0]);
+    }
+#if CYTHON_COMPILING_IN_CPYTHON
+    {
+        PyObject *copy = _PyLong_Copy((PyLongObject*)n);
+        if (likely(copy)) {
+            // negate the size to swap the sign
+            __Pyx_SET_SIZE(copy, -Py_SIZE(copy));
+        }
+        return copy;
+    }
+#else
+    return PyNumber_Negative(n);
+#endif
+}
+#endif
 
 
 //////////////////// pow2.proto ////////////////////
@@ -417,7 +468,12 @@ static CYTHON_INLINE PyObject* __Pyx_PyDict_ViewItems(PyObject* d) {
         return CALL_UNBOUND_METHOD(PyDict_Type, "viewitems", d);
 }
 
+
 //////////////////// pyfrozenset_new.proto ////////////////////
+
+static CYTHON_INLINE PyObject* __Pyx_PyFrozenSet_New(PyObject* it);
+
+//////////////////// pyfrozenset_new ////////////////////
 //@substitute: naming
 
 static CYTHON_INLINE PyObject* __Pyx_PyFrozenSet_New(PyObject* it) {
@@ -447,7 +503,7 @@ static CYTHON_INLINE PyObject* __Pyx_PyFrozenSet_New(PyObject* it) {
         Py_DECREF(result);
 #endif
     }
-#if CYTHON_COMPILING_IN_CPYTHON
+#if CYTHON_USE_TYPE_SLOTS
     return PyFrozenSet_Type.tp_new(&PyFrozenSet_Type, $empty_tuple, NULL);
 #else
     return PyObject_Call((PyObject*)&PyFrozenSet_Type, $empty_tuple, NULL);
@@ -463,7 +519,7 @@ static CYTHON_INLINE int __Pyx_PySet_Update(PyObject* set, PyObject* it); /*prot
 
 static CYTHON_INLINE int __Pyx_PySet_Update(PyObject* set, PyObject* it) {
     PyObject *retval;
-    #if CYTHON_COMPILING_IN_CPYTHON
+    #if CYTHON_USE_TYPE_SLOTS && !CYTHON_COMPILING_IN_PYPY
     if (PyAnySet_Check(it)) {
         if (PySet_GET_SIZE(it) == 0)
             return 0;

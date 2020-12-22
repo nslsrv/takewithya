@@ -1,13 +1,29 @@
 #pragma once
 
-#include "stlfwd.h"
-
 #include <util/system/defaults.h>
+
+#include <stlfwd>
+
+//strings
+template <class TCharType>
+class TCharTraits;
+
+template <typename TCharType, typename TTraits = TCharTraits<TCharType>>
+class TBasicString;
+
+using TString = TBasicString<char>;
+using TUtf16String = TBasicString<wchar16>;
+using TUtf32String = TBasicString<wchar32>;
+
+template <typename TCharType, typename TTraits = TCharTraits<TCharType>>
+class TBasicStringBuf;
+
+using TStringBuf = TBasicStringBuf<char>;
+using TWtringBuf = TBasicStringBuf<wchar16>;
+using TUtf32StringBuf = TBasicStringBuf<wchar32>;
 
 //misc
 class TBuffer;
-class TString;
-class TUtf16String;
 
 //functors
 template <class T = void>
@@ -21,20 +37,6 @@ struct TEqualTo;
 
 template <class T>
 struct THash;
-
-//strings
-template <class TCharType>
-class TCharTraits;
-
-template <typename TChar, typename TTraits = TCharTraits<TChar>>
-class TStringBufImpl;
-
-using TStringBuf = TStringBufImpl<char>;
-using TWtringBuf = TStringBufImpl<wchar16>;
-
-//alias for compatibility with TGenericString
-template <typename TChar>
-using TGenericStringBuf = TStringBufImpl<TChar>;
 
 //intrusive containers
 template <class T>
@@ -54,46 +56,46 @@ class TRbTree;
 
 //containers
 template <class T, class A = std::allocator<T>>
-class yvector;
+class TVector;
 
 template <class T, class A = std::allocator<T>>
-class ydeque;
+class TDeque;
 
-template <class T, class S = ydeque<T>>
-class yqueue;
+template <class T, class S = TDeque<T>>
+class TQueue;
 
-template <class T, class S = yvector<T>, class C = TLess<T>>
-class ypriority_queue;
-
-template <class Key, class T, class HashFcn = THash<Key>, class EqualKey = TEqualTo<Key>, class Alloc = std::allocator<T>>
-class yhash;
+template <class T, class S = TVector<T>, class C = TLess<T>>
+class TPriorityQueue;
 
 template <class Key, class T, class HashFcn = THash<Key>, class EqualKey = TEqualTo<Key>, class Alloc = std::allocator<T>>
-class yhash_mm;
+class THashMap;
+
+template <class Key, class T, class HashFcn = THash<Key>, class EqualKey = TEqualTo<Key>, class Alloc = std::allocator<T>>
+class THashMultiMap;
 
 template <class Value, class HashFcn = THash<Value>, class EqualKey = TEqualTo<Value>, class Alloc = std::allocator<Value>>
-class yhash_set;
+class THashSet;
 
 template <class Value, class HashFcn = THash<Value>, class EqualKey = TEqualTo<Value>, class Alloc = std::allocator<Value>>
-class yhash_multiset;
+class THashMultiSet;
 
 template <class T, class A = std::allocator<T>>
-class ylist;
+class TList;
 
 template <class K, class V, class Less = TLess<K>, class A = std::allocator<K>>
-class ymap;
+class TMap;
 
 template <class K, class V, class Less = TLess<K>, class A = std::allocator<K>>
-class ymultimap;
+class TMultiMap;
 
 template <class K, class L = TLess<K>, class A = std::allocator<K>>
-class yset;
+class TSet;
 
 template <class K, class L = TLess<K>, class A = std::allocator<K>>
-class ymultiset;
+class TMultiSet;
 
-template <class T, class S = ydeque<T>>
-class ystack;
+template <class T, class S = TDeque<T>>
+class TStack;
 
 template <size_t BitCount, typename TChunkType = ui64>
 class TBitMap;
@@ -131,14 +133,14 @@ using TSimpleIntrusivePtr = TIntrusivePtr<T, TSimpleIntrusiveOps<T, Ops>>;
 template <class T, class C, class D = TDelete>
 class TSharedPtr;
 
-template <class T, class D = TDelete>
-class TLinkedPtr;
-
 template <class T, class C = TCopyNew, class D = TDelete>
 class TCopyPtr;
 
 template <class TPtr, class TCopy = TCopyNew>
 class TCowPtr;
+
+template <typename T>
+class TPtrArg;
 
 template <typename T>
 using TArrayHolder = THolder<T, TDeleteArray>;
@@ -156,6 +158,7 @@ using TMallocPtr = TAutoPtr<T, TFree>;
 namespace NMaybe {
     struct TPolicyUndefinedExcept;
 }
+
 template <class T, class Policy = ::NMaybe::TPolicyUndefinedExcept>
 class TMaybe;
 
@@ -163,3 +166,9 @@ struct TGUID;
 
 template <class... Ts>
 class TVariant;
+
+template <class T>
+class TArrayRef;
+
+template <class T>
+using TConstArrayRef = TArrayRef<const T>;

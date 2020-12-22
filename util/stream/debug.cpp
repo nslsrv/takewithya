@@ -31,12 +31,17 @@ namespace {
             }
         }
 
-        TOutputStream* Out;
+        IOutputStream* Out;
         int Level;
     };
 }
 
-TOutputStream& StdDbgStream() noexcept {
+template <>
+struct TSingletonTraits<TDbgSelector> {
+    static constexpr size_t Priority = 8;
+};
+
+IOutputStream& StdDbgStream() noexcept {
     return *(Singleton<TDbgSelector>()->Out);
 }
 
