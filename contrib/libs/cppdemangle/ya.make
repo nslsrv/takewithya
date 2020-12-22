@@ -29,7 +29,6 @@ END()
 
 RECURSE(
     filt
-    fuzz
 )
 
 RECURSE_FOR_TESTS(

@@ -5,7 +5,6 @@ RECURSE(
     base64
     brotli
     clapack
-    coreml
     cppdemangle
     crcutil
     cxxsupp/libcxx
@@ -41,7 +40,6 @@ RECURSE(
     snappy
     sqlite3
     tbb
-    tensorboard
     xxhash
     zlib
     zstd

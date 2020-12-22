@@ -9,16 +9,13 @@ RECURSE(
     binsaver/ut
     binsaver/ut_util
     blockcodecs
-    blockcodecs/fuzz
     blockcodecs/ut
     build_info
     cache
     cache/ut
     cgiparam
-    cgiparam/fuzz
     cgiparam/ut
     charset
-    charset/ut
     chromium_trace
     colorizer
     colorizer/ut
@@ -35,7 +32,6 @@ RECURSE(
     dns
     dns/ut
     dot_product
-    dot_product/bench
     dot_product/ut
     enumbitset
     enumbitset/ut
@@ -50,7 +46,6 @@ RECURSE(
     getopt/small
     getopt/ut
     grid_creator
-    grid_creator/fuzz
     grid_creator/ut
     hnsw
     http
@@ -58,19 +53,14 @@ RECURSE(
     json/fast_sax
     json/flex_buffers
     json/flex_buffers/ut
-    json/fuzzy_test
     json/ut
     json/writer/ut
     json/yson
-    json/yson/ut
     l1_distance
-    l1_distance/bench
     l1_distance/ut
     l2_distance
-    l2_distance/bench
     l2_distance/ut
     langmask
-    langmask/proto
     langmask/serialization
     langmask/ut
     langs
@@ -122,13 +112,9 @@ RECURSE(
     token
     tokenizer
     tokenizer/ut
-    token/serialization
-    token/serialization/ut
-    token/ut
     unicode
     yson
     yson/node
-    yson/node/pybind
 )
 
 IF (OS_LINUX)
