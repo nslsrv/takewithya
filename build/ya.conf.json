@@ -2901,6 +2901,7 @@
                 "werror_mode": "all",
                 "c_compiler": "$(CLANG)/bin/clang",
                 "cxx_compiler": "$(CLANG)/bin/clang++",
+                "cxx_std": "c++20",
                 "llvm-symbolizer": "$(CLANG)/bin/llvm-symbolizer",
                 "objcopy": "$(CLANG)/bin/llvm-objcopy",
                 "strip": "$(CLANG)/bin/llvm-strip",
@@ -6272,9 +6273,7 @@
         },
         "ymake": {
             "formula": {
-                "sandbox_id": [
-                    845589841
-                ],
+                "sandbox_id": [851888539],
                 "match": "ymake"
             },
             "executable": {
@@ -7938,7 +7937,7 @@
         },
         "horadric": {
             "formula": {
-                "sandbox_id": 851819802,
+                "sandbox_id": 852742666,
                 "match": "horadric"
             },
             "executable": {
@@ -7949,7 +7948,7 @@
         },
         "logbroker": {
             "formula": {
-                "sandbox_id": 851819874,
+                "sandbox_id": 852742648,
                 "match": "logbroker"
             },
             "executable": {
@@ -7960,7 +7959,7 @@
         },
         "zcli": {
             "formula": {
-                "sandbox_id": 852080593,
+                "sandbox_id": 852626802,
                 "match": "zcli"
             },
             "executable": {
@@ -8081,7 +8080,7 @@
         },
         "apphost": {
             "formula": {
-                "sandbox_id": 851819254,
+                "sandbox_id": 852742485,
                 "match": "app_host_launcher"
             },
             "executable": {
@@ -8542,7 +8541,7 @@
         },
         "iceflame": {
             "formula": {
-                "sandbox_id": 851819955,
+                "sandbox_id": 852742211,
                 "match": "iceflame"
             },
             "executable": {
