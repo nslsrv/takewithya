@@ -22,7 +22,6 @@ RECURSE(
     pytest
     pytz
     scandir
-    scipy
     setuptools
     six
     subprocess32

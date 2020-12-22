@@ -18,7 +18,6 @@ RECURSE(
     poor_man_openmp
     poor_man_openmp/ut
     skip_list
-    skip_list/perf
     skip_list/ut
     thread_local
     thread_local/benchmark

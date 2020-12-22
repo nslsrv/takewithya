@@ -12,7 +12,6 @@ RECURSE(
     fs
     pymain
     pytest
-    pytest/allure
     pytest/empty
     pytest/plugins
     reservoir_sampling

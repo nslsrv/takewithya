@@ -6,9 +6,7 @@ RECURSE(
     comptrie/loader
     comptrie/loader/ut
     comptrie/ut
-    comptrie/benchmark
     dense_hash
-    dense_hash/dense_hash_benchmark
     dense_hash/ut
     disjoint_interval_tree
     disjoint_interval_tree/ut
@@ -16,14 +14,12 @@ RECURSE(
     flat_hash/benchmark
     flat_hash/lib
     flat_hash/lib/concepts
-    flat_hash/lib/fuzz
     flat_hash/lib/ut
     flat_hash/ut
     heap_dict
     heap_dict/benchmark
     heap_dict/ut
     intrusive_rb_tree
-    intrusive_rb_tree/fuzz
     intrusive_rb_tree/ut
     paged_vector
     paged_vector/ut
