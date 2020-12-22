@@ -14,7 +14,7 @@ public:
     struct TItem {
         TMaybe<TString> Value;
         TString CppName;
-        yvector<TString> Aliases;
+        TVector<TString> Aliases;
         TString CommentText;
 
         void Clear() {
@@ -24,15 +24,15 @@ public:
         void NormalizeValue() {
             if (!Value)
                 return;
-            Strip(*Value);
+            StripInPlace(*Value);
         }
 
     };
 
     // vector is to preserve declaration order
-    typedef yvector<TItem> TItems;
+    typedef TVector<TItem> TItems;
 
-    typedef yvector<TString> TScope;
+    typedef TVector<TString> TScope;
 
     struct TEnum {
         TItems Items;
@@ -48,7 +48,7 @@ public:
         }
     };
 
-    typedef yvector<TEnum> TEnums;
+    typedef TVector<TEnum> TEnums;
 
     /// Parse results stored here
     TEnums Enums;
@@ -60,7 +60,7 @@ public:
     TEnumParser(const char* data, size_t length);
 
     /// Parse enums from input stream
-    TEnumParser(TInputStream& in);
+    TEnumParser(IInputStream& in);
 
     static TString ScopeStr(const TScope& scope) {
         TString result;

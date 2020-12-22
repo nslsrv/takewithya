@@ -1,10 +1,10 @@
 #include "datetime.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/string/builder.h>
 
-SIMPLE_UNIT_TEST_SUITE(TSimpleTMTest) {
+Y_UNIT_TEST_SUITE(TSimpleTMTest) {
     TString PrintMarker(const TString& test, int line) {
         return TStringBuilder() << "test " << test << " at line " << line;
     }
@@ -52,16 +52,16 @@ SIMPLE_UNIT_TEST_SUITE(TSimpleTMTest) {
         UNIT_ASSERT_VALUES_EQUAL_C((int)tms.Sec, sec, marker);
     }
 
-    SIMPLE_UNIT_TEST(TestLeap) {
+    Y_UNIT_TEST(TestLeap) {
         using namespace NDatetime;
-        UNIT_ASSERT(LeapYearAD(2000))
-        UNIT_ASSERT(LeapYearAD(2012))
-        UNIT_ASSERT(!LeapYearAD(1999))
-        UNIT_ASSERT(LeapYearAD(2004))
-        UNIT_ASSERT(!LeapYearAD(1900))
+        UNIT_ASSERT(LeapYearAD(2000));
+        UNIT_ASSERT(LeapYearAD(2012));
+        UNIT_ASSERT(!LeapYearAD(1999));
+        UNIT_ASSERT(LeapYearAD(2004));
+        UNIT_ASSERT(!LeapYearAD(1900));
     }
 
-    SIMPLE_UNIT_TEST(TestYDayConversion) {
+    Y_UNIT_TEST(TestYDayConversion) {
         using namespace NDatetime;
         ui32 month;
         ui32 mday;
@@ -79,7 +79,7 @@ SIMPLE_UNIT_TEST_SUITE(TSimpleTMTest) {
         UNIT_ASSERT_EXCEPTION(YDayToMonthAndDay(366, true, &month, &mday), yexception);
     }
 
-    SIMPLE_UNIT_TEST(SimpleTMTest) {
+    Y_UNIT_TEST(SimpleTMTest) {
         using namespace NDatetime;
 
         tzset();

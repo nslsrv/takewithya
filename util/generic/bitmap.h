@@ -5,6 +5,7 @@
 #include "bitops.h"
 #include "typetraits.h"
 #include "algorithm.h"
+#include "utility.h"
 
 #include <util/system/yassert.h>
 #include <util/system/defaults.h>
@@ -258,6 +259,7 @@ namespace NBitMapPrivate {
         // Returns true if the resulting storage capacity is enough to fit the requested size
         Y_FORCE_INLINE bool ExpandSize(size_t size, bool keepData = true) {
             if (size > Size) {
+                size = Max(size, Size * 2);
                 TArrayHolder<TChunk> newData(new TChunk[size]);
                 if (keepData) {
                     for (size_t i = 0; i < Size; ++i) {
@@ -292,7 +294,7 @@ namespace NBitMapPrivate {
         static constexpr size_t Value = 0;
     };
 
-} // NBitMapPrivate
+}
 
 template <size_t BitCount, typename TChunkType>
 struct TFixedBitMapTraits {
@@ -626,7 +628,8 @@ public:
                    : 0;
     }
 
-    Y_FORCE_INLINE bool Empty() const {
+    Y_PURE_FUNCTION Y_FORCE_INLINE
+    bool Empty() const {
         for (size_t i = 0; i < Mask.GetChunkCapacity(); ++i)
             if (Mask.Data[i])
                 return false;
@@ -956,13 +959,13 @@ public:
         return count;
     }
 
-    void Save(TOutputStream* out) const {
+    void Save(IOutputStream* out) const {
         ::Save(out, ui8(sizeof(TChunk)));
         ::Save(out, ui64(Size()));
         ::SavePodArray(out, Mask.Data, Mask.GetChunkCapacity());
     }
 
-    void Load(TInputStream* inp) {
+    void Load(IInputStream* inp) {
         ui8 chunkSize = 0;
         ::Load(inp, chunkSize);
         Y_VERIFY(size_t(chunkSize) == sizeof(TChunk), "Chunk size is not the same");

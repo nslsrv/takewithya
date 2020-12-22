@@ -20,7 +20,7 @@ namespace NSan {
     class TFiberContext {
     public:
         TFiberContext() noexcept;
-        TFiberContext(const void* stack, size_t len) noexcept;
+        TFiberContext(const void* stack, size_t len, const char* contName) noexcept;
 
         ~TFiberContext() noexcept;
 
@@ -34,6 +34,11 @@ namespace NSan {
         void* Token_;
         const void* Stack_;
         size_t Len_;
+
+#if defined(_tsan_enabled_)
+        void* const CurrentTSanFiberContext_;
+        const bool WasFiberCreated_;
+#endif
     };
 
     // Returns plain if no sanitizer enabled or sanitized otherwise
@@ -50,7 +55,7 @@ namespace NSan {
     }
 
     // Determines if asan present
-    inline static bool ASanIsOn() noexcept {
+    inline constexpr static bool ASanIsOn() noexcept {
 #if defined(_asan_enabled_)
         return true;
 #else
@@ -59,7 +64,7 @@ namespace NSan {
     }
 
     // Determines if tsan present
-    inline static bool TSanIsOn() noexcept {
+    inline constexpr static bool TSanIsOn() noexcept {
 #if defined(_tsan_enabled_)
         return true;
 #else
@@ -68,7 +73,7 @@ namespace NSan {
     }
 
     // Determines if msan present
-    inline static bool MSanIsOn() noexcept {
+    inline constexpr static bool MSanIsOn() noexcept {
 #if defined(_msan_enabled_)
         return true;
 #else
@@ -114,4 +119,4 @@ namespace NSan {
         Y_UNUSED(ptr);
 #endif
     }
-} // namespace NSan
+}

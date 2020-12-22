@@ -1,9 +1,9 @@
 #include "guard.h"
 #include "rwlock.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-#include <util/thread/queue.h>
+#include <util/thread/pool.h>
 
 struct TTestGuard: public TTestBase {
     UNIT_TEST_SUITE(TTestGuard);
@@ -14,6 +14,7 @@ struct TTestGuard: public TTestBase {
     UNIT_TEST(TestUnguard)
     UNIT_TEST(TestTryReadGuard)
     UNIT_TEST(TestWithLock)
+    UNIT_TEST(TestWithLockScope);
     UNIT_TEST_SUITE_END();
 
     struct TGuardChecker {
@@ -118,10 +119,11 @@ struct TTestGuard: public TTestBase {
         {
             TTryGuard<TGuardChecker> guard(checker);
             UNIT_ASSERT(checker.guarded);
-            UNIT_ASSERT(guard.WasAcquired()) {
+            UNIT_ASSERT(guard.WasAcquired());
+            {
                 TTryGuard<TGuardChecker> guard2(checker);
                 UNIT_ASSERT(checker.guarded);
-                UNIT_ASSERT(!guard2.WasAcquired())
+                UNIT_ASSERT(!guard2.WasAcquired());
             }
             UNIT_ASSERT(checker.guarded);
         }
@@ -164,6 +166,14 @@ struct TTestGuard: public TTestBase {
         n = WithLockIncrement(m, n);
         UNIT_ASSERT(!m.guarded);
         UNIT_ASSERT_EQUAL(n, 43);
+    }
+
+    void TestWithLockScope() {
+        auto Guard = [](auto) { UNIT_FAIL("Non global Guard used"); return 0; };
+        TGuardChecker m;
+        with_lock (m) {
+            Y_UNUSED(Guard);
+        }
     }
 };
 

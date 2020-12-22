@@ -2,6 +2,7 @@
 
 #include <util/generic/singleton.h>
 #include <util/generic/yexception.h>
+#include <util/system/info.h>
 #include "align.h"
 
 #ifdef _linux_
@@ -31,9 +32,12 @@ namespace {
             if (linuxVersionCode < KERNEL_VERSION(2, 4, 10)) {
                 Alignment = 0;
             } else if (linuxVersionCode < KERNEL_VERSION(2, 6, 0)) {
-                Alignment = sysconf(_SC_PAGESIZE);
+                Alignment = NSystemInfo::GetPageSize();
             } else {
-                Alignment = 512;
+                // Default alignment used to be 512, but most modern devices rely on 4k physical blocks.
+                // 4k alignment works well for both 512 and 4k blocks and doesn't require 512e support in the kernel.
+                // See IGNIETFERRO-946.
+                Alignment = 4096;
             }
 #endif
         }
@@ -50,8 +54,8 @@ TDirectIOBufferedFile::TDirectIOBufferedFile(const TString& path, EOpenMode oMod
     , WritePosition(0)
     , DirectIO(false)
 {
-    if (!File.IsOpen()) {
-        ythrow TFileError() << "can not open " << path;
+    if (buflen == 0) {
+        ythrow TFileError() << "unbuffered usage is not supported";
     }
 
     if (oMode & Direct) {
@@ -76,9 +80,9 @@ void TDirectIOBufferedFile::SetDirectIO(bool value) {
     }
 
     if (!!Alignment && value) {
-        (void)fcntl(File, F_SETFL, fcntl(File, F_GETFL) | DIRECT_IO_FLAGS);
+        (void)fcntl(File.GetHandle(), F_SETFL, fcntl(File.GetHandle(), F_GETFL) | DIRECT_IO_FLAGS);
     } else {
-        (void)fcntl(File, F_SETFL, fcntl(File, F_GETFL) & ~DIRECT_IO_FLAGS);
+        (void)fcntl(File.GetHandle(), F_SETFL, fcntl(File.GetHandle(), F_GETFL) & ~DIRECT_IO_FLAGS);
     }
 
     DirectIO = value;
@@ -88,30 +92,27 @@ void TDirectIOBufferedFile::SetDirectIO(bool value) {
 }
 
 TDirectIOBufferedFile::~TDirectIOBufferedFile() {
-    Finish();
+    try {
+        Finish();
+    } catch (...) {
+    }
 }
 
 void TDirectIOBufferedFile::FlushData() {
-    if (File.IsOpen()) {
-        WriteToFile(Buffer, DataLen, FlushedBytes);
-        DataLen = 0;
-        File.FlushData();
-    }
+    WriteToFile(Buffer, DataLen, FlushedBytes);
+    DataLen = 0;
+    File.FlushData();
 }
 
 void TDirectIOBufferedFile::Finish() {
-    if (File.IsOpen()) {
-        FlushData();
-        File.Flush();
-        File.Close();
-    }
+    FlushData();
+    File.Flush();
+    File.Close();
 }
 
 void TDirectIOBufferedFile::Write(const void* buffer, ui32 byteCount) {
-    if (File.IsOpen()) {
-        WriteToBuffer(buffer, byteCount, DataLen);
-        WritePosition += byteCount;
-    }
+    WriteToBuffer(buffer, byteCount, DataLen);
+    WritePosition += byteCount;
 }
 
 void TDirectIOBufferedFile::WriteToBuffer(const void* buf, size_t len, ui64 position) {
@@ -138,9 +139,7 @@ void TDirectIOBufferedFile::WriteToFile(const void* buf, size_t len, ui64 positi
     if (!!len) {
         SetDirectIO(IsAligned(buf) && IsAligned(len) && IsAligned(position));
 
-        if (File.Pwrite(buf, len, position) < 0) {
-            ythrow yexception() << STRINGBUF("error while pwrite file: ") << LastSystemError() << STRINGBUF("(") << LastSystemErrorText() << STRINGBUF(")");
-        }
+        File.Pwrite(buf, len, position);
 
         FlushedBytes = Max(FlushedBytes, position + len);
         FlushedToDisk = Min(FlushedToDisk, position);
@@ -153,7 +152,7 @@ ui32 TDirectIOBufferedFile::PreadSafe(void* buffer, ui32 byteCount, ui64 offset)
         FlushedToDisk = FlushedBytes;
     }
 
-    i32 readed = File.Pread(buffer, byteCount, offset);
+    i32 readed = File.RawPread(buffer, byteCount, offset);
 
     if (readed < 0) {
         ythrow yexception() << "error while pread file: " << LastSystemError() << "(" << LastSystemErrorText() << ")";
@@ -224,23 +223,21 @@ ui32 TDirectIOBufferedFile::Pread(void* buffer, ui32 byteCount, ui64 offset) {
 }
 
 void TDirectIOBufferedFile::Pwrite(const void* buffer, ui32 byteCount, ui64 offset) {
-    if (File.IsOpen()) {
-        if (offset > WritePosition) {
-            ythrow yexception() << "cannot frite to position" << offset;
-        }
+    if (offset > WritePosition) {
+        ythrow yexception() << "cannot frite to position" << offset;
+    }
 
-        ui32 writeToBufer = byteCount;
-        ui32 writeToFile = 0;
+    ui32 writeToBufer = byteCount;
+    ui32 writeToFile = 0;
 
-        if (FlushedBytes > offset) {
-            writeToFile = Min<ui64>(byteCount, FlushedBytes - offset);
-            WriteToFile(buffer, writeToFile, offset);
-            writeToBufer -= writeToFile;
-        }
+    if (FlushedBytes > offset) {
+        writeToFile = Min<ui64>(byteCount, FlushedBytes - offset);
+        WriteToFile(buffer, writeToFile, offset);
+        writeToBufer -= writeToFile;
+    }
 
-        if (writeToBufer > 0) {
-            ui64 bufferOffset = offset + writeToFile - FlushedBytes;
-            WriteToBuffer((const char*)buffer + writeToFile, writeToBufer, bufferOffset);
-        }
+    if (writeToBufer > 0) {
+        ui64 bufferOffset = offset + writeToFile - FlushedBytes;
+        WriteToBuffer((const char*)buffer + writeToFile, writeToBufer, bufferOffset);
     }
 }

@@ -3,16 +3,12 @@ LIBRARY()
 
 
 PEERDIR(
-    library/python/runtime
+    contrib/tools/python/base
 )
 
-IF (MUSL)
-    PEERDIR(
-        library/python/pythonapi
-    )
-ENDIF()
-
-USE_PYTHON()
+ADDINCL(
+    contrib/tools/python/src/Include
+)
 
 SRCS(
     main.c

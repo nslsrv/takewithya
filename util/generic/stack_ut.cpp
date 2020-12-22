@@ -1,10 +1,10 @@
 #include "stack.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TYStackTest) {
-    SIMPLE_UNIT_TEST(ExplicitBool) {
-        ystack<int> s;
+Y_UNIT_TEST_SUITE(TYStackTest) {
+    Y_UNIT_TEST(ExplicitBool) {
+        TStack<int> s;
 
         UNIT_ASSERT(!s);
         UNIT_ASSERT(s.empty());

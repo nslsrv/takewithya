@@ -16,8 +16,10 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/user.h>
-#elif defined(_darwin_) && !defined(_arm_)
+#elif defined(_darwin_) && !defined(_arm_) && !defined(__IOS__)
 #include <libproc.h>
+#elif defined(__MACH__) && defined(__APPLE__)
+#include <mach/mach.h>
 #endif
 #elif defined(_win_)
 #include <Windows.h>
@@ -110,8 +112,8 @@ namespace NMemInfo {
 #endif
 
 #if defined(_linux_) || defined(_cygwin_)
-        const TString path = TStringBuilder() << STRINGBUF("/proc/") << pid << STRINGBUF("/statm");
-        const TString stats = TFileInput(path).ReadAll();
+        const TString path = TStringBuilder() << TStringBuf("/proc/") << pid << TStringBuf("/statm");
+        const TString stats = TUnbufferedFileInput(path).ReadAll();
 
         TStringBuf statsiter(stats);
 
@@ -138,7 +140,7 @@ namespace NMemInfo {
 
         result.VMS = proc.ki_size;
         result.RSS = proc.ki_rssize * pagesize;
-#elif defined(_darwin_) && !defined(_arm_)
+#elif defined(_darwin_) && !defined(_arm_) && !defined(__IOS__)
         struct proc_taskinfo taskInfo;
         const int r = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &taskInfo, sizeof(taskInfo));
 
@@ -149,6 +151,18 @@ namespace NMemInfo {
         }
         result.VMS = taskInfo.pti_virtual_size;
         result.RSS = taskInfo.pti_resident_size;
+#elif defined(__MACH__) && defined(__APPLE__)
+        struct mach_task_basic_info taskInfo;
+        mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+
+        const int r = task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&taskInfo, &infoCount);
+        if (r != KERN_SUCCESS) {
+            int err = errno;
+            TString errtxt = LastSystemErrorText(err);
+            ythrow yexception() << "task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &infoCount) returned" << r << ", errno: " << err << " (" << errtxt << ")" << Endl;
+        }
+        result.VMS = taskInfo.virtual_size;
+        result.RSS = taskInfo.resident_size;
 #elif defined(_arm_)
         ythrow yexception() << "arm is not supported";
 #endif

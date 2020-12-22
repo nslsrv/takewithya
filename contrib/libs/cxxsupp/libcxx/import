@@ -1,8 +1,20 @@
 #!/bin/sh -e
 
-rev=235607
-
-svn export http://llvm.org/svn/llvm-project/libcxx/trunk libcxx-r$rev
-cd libcxx-r$rev
-
-rm -r cmake lib test utils www CMakeLists.txt CREDITS.TXT LICENSE.TXT Makefile .arcconfig .gitignore include/CMakeLists.txt
+rev=1a7e688b
+output_dir="libcxx-r$rev"
+if [ -z $1 ] ; then
+    git clone https://github.com/llvm/llvm-project.git --no-checkout "$output_dir/tmp"
+else
+    git clone --local --no-checkout $1 "$output_dir/tmp"
+fi
+cd "$output_dir/tmp"
+git checkout "$rev"
+cp -R libcxx/include ../include
+cp -R libcxx/src ../src
+cp libcxx/.clang-format ../.clang-format
+cp libcxx/CREDITS.TXT ../CREDITS.TXT
+cp libcxx/LICENSE.TXT ../LICENSE.TXT
+cp libcxx/NOTES.TXT ../NOTES.TXT
+cd ..
+rm -rf tmp
+rm src/CMakeLists.txt include/CMakeLists.txt

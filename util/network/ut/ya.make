@@ -1,9 +1,11 @@
 UNITTEST_FOR(util)
 
+REQUIREMENTS(network:full)
+
 
 
 PEERDIR(
-    library/threading/future
+    library/cpp/threading/future
 )
 
 SRCS(
@@ -14,5 +16,7 @@ SRCS(
     network/sock_ut.cpp
     network/socket_ut.cpp
 )
+
+INCLUDE(${ARCADIA_ROOT}/util/tests/ya_util_tests.inc)
 
 END()

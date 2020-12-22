@@ -1,31 +1,32 @@
-import re
 import os
 
 import _import_wrapper as iw
 import _common as common
 
-INCLUDE_PATTERN = re.compile('include *"([^"]*)";')
+
+def split_args(s):
+    if s is None:
+        return []
+    return s.split(' ')
 
 
-class Flatc(iw.CustomCommand):
+class FlatcBase(iw.CustomCommand):
 
     def __init__(self, path, unit):
         self._path = path
         self._incl_dirs = ['$S', '$B']
-
-    def descr(self):
-        return 'FL', self._path, 'light-green'
-
-    def tools(self):
-        return ['contrib/tools/flatc']
+        self._reflect_names = unit.get('FLATBUF_REFLECTION') == 'yes'
+        self._user_extra_args = split_args(unit.get('FLATBUF_FLAGS'))
 
     def input(self):
         return common.make_tuples([self._path, '$S/build/scripts/stdout2stderr.py'])
 
     def output(self):
-        return common.make_tuples([common.tobuilddir(common.stripext(self._path)) + '.fbs.h'])
+        base_path = common.tobuilddir(common.stripext(self._path))
+        return [(base_path + extension, []) for extension in self.extensions()] +\
+            [(base_path + self.schema_extension(), ['noauto'])]
 
-    def run(self, binary):
+    def run(self, extra_args, binary):
         return self.do_run(binary, self._path)
 
     def do_run(self, binary, path):
@@ -34,59 +35,57 @@ class Flatc(iw.CustomCommand):
                 yield '-I'
                 yield self.resolve_path(x)
         output_dir = os.path.dirname(self.resolve_path(common.get(self.output, 0)))
-        cmd = common.get_interpreter_path() + ['$S/build/scripts/stdout2stderr.py', binary, '--cpp'] + list(incls()) + ['-o', output_dir, path]
+        cmd = (common.get_interpreter_path() +
+               ['$S/build/scripts/stdout2stderr.py', binary, '--cpp', '--keep-prefix', '--gen-mutable', '--schema', '-b'] +
+               self.extra_arguments() + self._user_extra_args +
+               list(incls()) +
+               ['-o', output_dir, path])
         self.call(cmd)
 
 
-class FlatcParser(object):
+class Flatc(FlatcBase):
 
     def __init__(self, path, unit):
-        self._path = path
-        retargeted = os.path.join(unit.path(), os.path.relpath(path, unit.resolve(unit.path())))
+        super(Flatc, self).__init__(path, unit)
 
-        with open(path, 'r') as f:
-            includes, induced = FlatcParser.parse_includes(f.readlines())
+    def descr(self):
+        return 'FL', self._path, 'light-green'
 
-        induced.append('contrib/libs/flatbuffers/include/flatbuffers/flatbuffers.h')
+    def tools(self):
+        return ['contrib/tools/flatc']
 
-        self._includes = unit.resolve_include([retargeted] + includes) if includes else []
-        self._induced = unit.resolve_include([retargeted] + induced) if induced else []
+    def extensions(self):
+        return [".fbs.h", ".iter.fbs.h"]
 
-    @staticmethod
-    def parse_includes(lines):
-        includes = []
-        induced = []
+    def schema_extension(self):
+        return ".bfbs"
 
-        for line in lines:
-            m = INCLUDE_PATTERN.match(line)
+    def extra_arguments(self):
+        return ['--yandex-maps-iter'] + (['--reflect-names'] if self._reflect_names else [])
 
-            if m:
-                incl = m.group(1)
-                includes.append(incl)
-                induced.append(common.stripext(incl) + '.fbs.h')
 
-        return includes, induced
+class Flatc64(FlatcBase):
 
-    def includes(self):
-        return self._includes
+    def __init__(self, path, unit):
+        super(Flatc64, self).__init__(path, unit)
 
-    def induced_deps(self):
-        return {'h': self._induced}
+    def descr(self):
+        return 'FL64', self._path, 'light-green'
+
+    def tools(self):
+        return ['contrib/tools/flatc64']
+
+    def extensions(self):
+        return [".fbs64.h"]
+
+    def schema_extension(self):
+        return ".bfbs64"
+
+    def extra_arguments(self):
+        return []
 
 
 def init():
     iw.addrule('fbs', Flatc)
-    iw.addparser('fbs', FlatcParser)
 
-
-# ----------------Plugin test------------------ #
-def test_include_parser():
-    text = '''
-aaaaa
-include "incl1.fbs";
-include   "incl2.fbs";
-// include "none.fbs";
-'''
-    includes, induced = FlatcParser.parse_includes(text.split('\n'))
-    assert includes == ['incl1.fbs', 'incl2.fbs', ]
-    assert induced == ['incl1.fbs.h', 'incl2.fbs.h', ]
+    iw.addrule('fbs64', Flatc64)

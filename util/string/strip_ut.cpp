@@ -1,11 +1,11 @@
 #include "strip.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/charset/wide.h>
 
-SIMPLE_UNIT_TEST_SUITE(TStripStringTest) {
-    SIMPLE_UNIT_TEST(TestStrip) {
+Y_UNIT_TEST_SUITE(TStripStringTest) {
+    Y_UNIT_TEST(TestStrip) {
         struct TTest {
             const char* Str;
             const char* StripLeftRes;
@@ -44,7 +44,7 @@ SIMPLE_UNIT_TEST_SUITE(TStripStringTest) {
         };
     }
 
-    SIMPLE_UNIT_TEST(TestCustomStrip) {
+    Y_UNIT_TEST(TestCustomStrip) {
         struct TTest {
             const char* Str;
             const char* Result;
@@ -63,7 +63,7 @@ SIMPLE_UNIT_TEST_SUITE(TStripStringTest) {
         };
     }
 
-    SIMPLE_UNIT_TEST(TestCustomStripLeftRight) {
+    Y_UNIT_TEST(TestCustomStripLeftRight) {
         struct TTest {
             const char* Str;
             const char* ResultLeft;
@@ -86,28 +86,28 @@ SIMPLE_UNIT_TEST_SUITE(TStripStringTest) {
         };
     }
 
-    SIMPLE_UNIT_TEST(TestNullStringStrip) {
+    Y_UNIT_TEST(TestNullStringStrip) {
         TStringBuf nullString(nullptr, nullptr);
         UNIT_ASSERT_EQUAL(
             StripString(nullString),
             TString());
     }
 
-    SIMPLE_UNIT_TEST(TestWtrokaStrip) {
-        UNIT_ASSERT_EQUAL(StripString(ASCIIToWide(" abc ")), ASCIIToWide("abc"));
-        UNIT_ASSERT_EQUAL(StripStringLeft(ASCIIToWide(" abc ")), ASCIIToWide("abc "));
-        UNIT_ASSERT_EQUAL(StripStringRight(ASCIIToWide(" abc ")), ASCIIToWide(" abc"));
+    Y_UNIT_TEST(TestWtrokaStrip) {
+        UNIT_ASSERT_EQUAL(StripString(TWtringBuf(u" abc ")), u"abc");
+        UNIT_ASSERT_EQUAL(StripStringLeft(TWtringBuf(u" abc ")), u"abc ");
+        UNIT_ASSERT_EQUAL(StripStringRight(TWtringBuf(u" abc ")), u" abc");
     }
 
-    SIMPLE_UNIT_TEST(TestWtrokaCustomStrip) {
+    Y_UNIT_TEST(TestWtrokaCustomStrip) {
         UNIT_ASSERT_EQUAL(
             StripString(
-                ASCIIToWide("/abc/"),
-                EqualsStripAdapter(TUtf16String::TChar('/'))),
-            ASCIIToWide("abc"));
+                TWtringBuf(u"/abc/"),
+                EqualsStripAdapter(u'/')),
+            u"abc");
     }
 
-    SIMPLE_UNIT_TEST(TestCollapse) {
+    Y_UNIT_TEST(TestCollapse) {
         TString s;
         Collapse(TString("  123    456  "), s);
         UNIT_ASSERT(s == " 123 456 ");
@@ -116,13 +116,15 @@ SIMPLE_UNIT_TEST_SUITE(TStripStringTest) {
 
         s = TString(" a b c ");
         TString s2 = s;
-        Collapse(s2);
+        CollapseInPlace(s2);
 
         UNIT_ASSERT(s == s2);
+#ifndef TSTRING_IS_STD_STRING
         UNIT_ASSERT(s.c_str() == s2.c_str()); // Collapse() does not change the string at all
+#endif
     }
 
-    SIMPLE_UNIT_TEST(TestCollapseText) {
+    Y_UNIT_TEST(TestCollapseText) {
         TString abs1("Very long description string written in unknown language.");
         TString abs2(abs1);
         TString abs3(abs1);

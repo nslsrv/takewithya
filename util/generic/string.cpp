@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cctype>
 
+#ifndef TSTRING_IS_STD_STRING
 namespace NDetail {
     struct TStaticData {
         TStringData Data;
@@ -28,15 +29,15 @@ namespace NDetail {
             return TDataTraits::GetNull();
         }
 
-        const size_t bufLen = Max(FastClp2(newLen), newLen);
-
-        if (bufLen >= TDataTraits::MaxSize) {
-            ThrowLengthError("Allocate() will fail");
+        if (Y_UNLIKELY(newLen >= TDataTraits::MaxSize)) {
+            throw std::length_error("Allocate() will fail");
         }
 
-        const size_t dataSize = TDataTraits::CalcAllocationSize(bufLen);
+        size_t bufLen = newLen;
+        const size_t dataSize = TDataTraits::CalcAllocationSizeAndCapacity(bufLen);
+        Y_ASSERT(bufLen >= newLen);
 
-        TData* ret = (TData*)(oldData == nullptr ? y_allocate(dataSize) : y_reallocate(oldData, dataSize));
+        auto ret = reinterpret_cast<TData*>(oldData == nullptr ? y_allocate(dataSize) : y_reallocate(oldData, dataSize));
 
         ret->Refs = 1;
         ret->BufLen = bufLen;
@@ -51,25 +52,30 @@ namespace NDetail {
 
     template char* Allocate<char>(size_t oldLen, size_t newLen, TStringData* oldData);
     template wchar16* Allocate<wchar16>(size_t oldLen, size_t newLen, TStringData* oldData);
+    template wchar32* Allocate<wchar32>(size_t oldLen, size_t newLen, TStringData* oldData);
 
     void Deallocate(void* data) {
         y_deallocate(data);
     }
 }
+#endif
 
-TOStream& operator<<(TOStream& os, const TString& s) {
-    return os.write(~s, +s);
+std::ostream& operator<<(std::ostream& os, const TString& s) {
+    return os.write(s.data(), s.size());
 }
 
-bool TString::to_lower(size_t pos, size_t n) {
+template<>
+bool TBasicString<char, TCharTraits<char>>::to_lower(size_t pos, size_t n) {
     return Transform([](size_t, char c) { return AsciiToLower(c); }, pos, n);
 }
 
-bool TString::to_upper(size_t pos, size_t n) {
+template<>
+bool TBasicString<char, TCharTraits<char>>::to_upper(size_t pos, size_t n) {
     return Transform([](size_t, char c) { return AsciiToUpper(c); }, pos, n);
 }
 
-bool TString::to_title(size_t pos, size_t n) {
+template<>
+bool TBasicString<char, TCharTraits<char>>::to_title(size_t pos, size_t n) {
     if (n == 0) {
         return false;
     }
@@ -77,123 +83,119 @@ bool TString::to_title(size_t pos, size_t n) {
     return to_lower(pos + 1, n - 1) || changed;
 }
 
-TUtf16String& TUtf16String::AppendUtf8(const ::TFixedString<char>& s) {
-    size_t oldSize = size();
-    ReserveAndResize(size() + s.Length * 4);
-    size_t written = 0;
-    size_t pos = UTF8ToWideImpl(s.Start, s.Length, begin() + oldSize, written);
-    if (pos != s.Length)
-        ythrow yexception() << "failed to decode UTF-8 string at pos " << pos << ::NDetail::InStringMsg(s.Start, s.Length);
-    remove(oldSize + written);
-    return *this;
-}
+template<>
+TUtf16String&
+TBasicString<wchar16, TCharTraits<wchar16>>::AppendAscii(const ::TStringBuf& s) {
+    ReserveAndResize(size() + s.size());
 
-TUtf16String& TUtf16String::AppendAscii(const ::TFixedString<char>& s) {
-    ReserveAndResize(size() + s.Length);
+    auto dst = begin() + size() - s.size();
 
-    auto dst = begin() + size() - s.Length;
-
-    for (const char *src = s.Start; dst != end(); ++dst, ++src) {
+    for (const char* src = s.data(); dst != end(); ++dst, ++src) {
         *dst = static_cast<wchar16>(*src);
     }
 
     return *this;
 }
 
-#define POS_RANGE(pos, len) pos = ((pos) < (len) ? (pos) : (len))
-#define NUM_RANGE(num, len, pos) num = ((num) < ((len) - (pos)) ? (num) : ((len) - (pos)))
+template<>
+TUtf16String&
+TBasicString<wchar16, TCharTraits<wchar16>>::AppendUtf8(const ::TStringBuf& s) {
+    size_t oldSize = size();
+    ReserveAndResize(size() + s.size() * 4);
+    size_t written = 0;
+    size_t pos = UTF8ToWideImpl(s.data(), s.size(), begin() + oldSize, written);
+    if (pos != s.size())
+        ythrow yexception() << "failed to decode UTF-8 string at pos " << pos << ::NDetail::InStringMsg(s.data(), s.size());
+    resize(oldSize + written);
 
-bool TUtf16String::to_lower(size_t pos, size_t n) {
-    bool changed = false;
-    size_t len = length();
-    POS_RANGE(pos, len);
-    NUM_RANGE(n, len, pos);
-
-    wchar16* begin = Data_ + pos;
-    wchar16* end = begin + n;
-    for (wchar16* i = begin; i != end;) {
-        wchar32 s = ReadSymbol(i, end);
-        wchar32 c = ToLower(s);
-        if (c != s) {
-            if (Y_UNLIKELY(!changed)) {
-                Detach();
-                end = Data_ + pos + n;
-                i = Data_ + pos + (i - begin);
-                changed = true;
-            }
-            WriteSymbol(c, i); // also skipping symbol
-        } else {
-            i = SkipSymbol(i, end);
-        }
-    }
-    return changed;
+    return *this;
 }
 
-bool TUtf16String::to_upper(size_t pos, size_t n) {
-    bool changed = false;
-    size_t len = length();
-    POS_RANGE(pos, len);
-    NUM_RANGE(n, len, pos);
-
-    wchar16* begin = Data_ + pos;
-    wchar16* end = begin + n;
-    for (wchar16* i = begin; i != end;) {
-        wchar32 s = ReadSymbol(i, end);
-        wchar32 c = ToUpper(s);
-        if (c != s) {
-            if (Y_UNLIKELY(!changed)) {
-                Detach();
-                end = Data_ + pos + n;
-                i = Data_ + pos + (i - begin);
-                changed = true;
-            }
-            WriteSymbol(c, i); // also skipping symbol
-        } else {
-            i = SkipSymbol(i, end);
-        }
-    }
-    return changed;
+template<>
+bool TBasicString<wchar16, TCharTraits<wchar16>>::to_lower(size_t pos, size_t n) {
+    return ToLower(*this, pos, n);
 }
 
-bool TUtf16String::to_title() {
-    size_t len = length();
-    if (len == 0)
-        return false;
+template<>
+bool TBasicString<wchar16, TCharTraits<wchar16>>::to_upper(size_t pos, size_t n) {
+    return ToUpper(*this, pos, n);
+}
 
-    bool changed = false;
+template<>
+bool TBasicString<wchar16, TCharTraits<wchar16>>::to_title(size_t pos, size_t n) {
+    return ToTitle(*this, pos, n);
+}
 
-    wchar16* begin = Data_;
-    wchar16* end = Data_ + len;
-    wchar16* i = Data_;
+template<>
+TUtf32String&
+TBasicString<wchar32, TCharTraits<wchar32>>::AppendAscii(const ::TStringBuf& s) {
+    ReserveAndResize(size() + s.size());
 
-    wchar32 s = ReadSymbol(i, end);
-    wchar32 c = ::ToTitle(s);
-    if (c != s) {
-        Y_ASSERT(!changed);
-        Detach();
-        end = Data_ + len;
-        i = Data_ + (i - begin);
-        changed = true;
-        WriteSymbol(c, i); // also skipping symbol
-    } else {
-        i = SkipSymbol(i, end);
+    auto dst = begin() + size() - s.size();
+
+    for (const char* src = s.data(); dst != end(); ++dst, ++src) {
+        *dst = static_cast<wchar32>(*src);
     }
-    Y_ASSERT(i <= end);
 
-    while (i != end) {
-        s = ReadSymbol(i, end);
-        c = ToLower(s);
-        if (c != s) {
-            if (Y_UNLIKELY(!changed)) {
-                Detach();
-                end = Data_ + len;
-                i = Data_ + (i - begin);
-                changed = true;
-            }
-            WriteSymbol(c, i); // also skipping symbol
-        } else {
-            i = SkipSymbol(i, end);
-        }
-    }
-    return changed;
+    return *this;
+}
+
+template<>
+TBasicString<char, TCharTraits<char>>&
+TBasicString<char, TCharTraits<char>>::AppendUtf16(const ::TWtringBuf& s) {
+    const size_t oldSize = size();
+    ReserveAndResize(size() + WideToUTF8BufferSize(s.size()));
+
+    size_t written = 0;
+    WideToUTF8(s.data(), s.size(), begin() + oldSize, written);
+
+    resize(oldSize + written);
+
+    return *this;
+}
+
+template<>
+TUtf32String&
+TBasicString<wchar32, TCharTraits<wchar32>>::AppendUtf8(const ::TStringBuf& s) {
+    size_t oldSize = size();
+    ReserveAndResize(size() + s.size() * 4);
+    size_t written = 0;
+    size_t pos = UTF8ToWideImpl(s.data(), s.size(), begin() + oldSize, written);
+    if (pos != s.size())
+        ythrow yexception() << "failed to decode UTF-8 string at pos " << pos << ::NDetail::InStringMsg(s.data(), s.size());
+    resize(oldSize + written);
+
+    return *this;
+}
+
+template<>
+TUtf32String&
+TBasicString<wchar32, TCharTraits<wchar32>>::AppendUtf16(const ::TWtringBuf& s) {
+    size_t oldSize = size();
+    ReserveAndResize(size() + s.size() * 2);
+
+    wchar32* oldEnd = begin() + oldSize;
+    wchar32* end = oldEnd;
+    NDetail::UTF16ToUTF32ImplScalar(s.data(), s.data() + s.size(), end);
+    size_t written = end - oldEnd;
+
+    resize(oldSize + written);
+
+    return *this;
+}
+
+
+template<>
+bool TBasicString<wchar32, TCharTraits<wchar32>>::to_lower(size_t pos, size_t n) {
+    return ToLower(*this, pos, n);
+}
+
+template<>
+bool TBasicString<wchar32, TCharTraits<wchar32>>::to_upper(size_t pos, size_t n) {
+    return ToUpper(*this, pos, n);
+}
+
+template<>
+bool TBasicString<wchar32, TCharTraits<wchar32>>::to_title(size_t pos, size_t n) {
+    return ToTitle(*this, pos, n);
 }

@@ -56,6 +56,14 @@ static constexpr T Sqr(const T t) noexcept {
     return t * t;
 }
 
+inline double Sigmoid(double x) {
+    return 1.0 / (1.0 + std::exp(-x));
+}
+
+inline float Sigmoid(float x) {
+    return 1.0f / (1.0f + std::exp(-x));
+}
+
 static inline bool IsFinite(double f) {
 #if defined(isfinite)
     return isfinite(f);
@@ -96,8 +104,14 @@ inline double Erf(double x) {
  * @returns                             Natural logarithm of the absolute value
  *                                      of the gamma function of provided argument.
  */
-inline double LogGamma(double x) {
-#if defined(__GNUC__)
+inline double LogGamma(double x) noexcept {
+#if defined(_glibc_)
+    int sign;
+
+    (void)sign;
+
+    return lgamma_r(x, &sign);
+#elif defined(__GNUC__)
     return __builtin_lgamma(x);
 #elif defined(_unix_)
     return lgamma(x);
@@ -157,4 +171,36 @@ inline bool FuzzyEquals(double p1, double p2, double eps = 1.0e-13) {
  */
 inline bool FuzzyEquals(float p1, float p2, float eps = 1.0e-6) {
     return (Abs(p1 - p2) <= eps * Min(Abs(p1), Abs(p2)));
+}
+
+namespace NUtilMathPrivate {
+    template <bool IsSigned>
+    struct TCeilDivImpl {};
+
+    template <>
+    struct TCeilDivImpl<true> {
+        template <class T>
+        static inline T Do(T x, T y) noexcept {
+            return x / y + (((x < 0) ^ (y > 0)) && (x % y));
+        }
+    };
+
+    template <>
+    struct TCeilDivImpl<false> {
+        template <class T>
+        static inline T Do(T x, T y) noexcept {
+            auto quot = x / y;
+            return (x % y) ? (quot + 1) : quot;
+        }
+    };
+}
+
+/**
+ * @returns Equivalent to ceil((double) x / (double) y) but using only integer arithmetic operations
+ */
+template <class T>
+inline T CeilDiv(T x, T y) noexcept {
+    static_assert(std::is_integral<T>::value, "Integral type required.");
+    Y_ASSERT(y != 0);
+    return ::NUtilMathPrivate::TCeilDivImpl<std::is_signed<T>::value>::Do(x, y);
 }

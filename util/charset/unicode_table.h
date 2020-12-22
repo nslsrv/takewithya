@@ -3,7 +3,6 @@
 #include <util/system/yassert.h>
 #include <util/system/defaults.h>
 #include <util/generic/typetraits.h>
-#include <util/generic/yexception.h>
 
 namespace NUnicodeTable {
     template <class Value>
@@ -121,4 +120,4 @@ namespace NUnicodeTable {
     };
 
     const size_t UNICODE_TABLE_SHIFT = 5;
-} // namespace NUnicodeTable
+}

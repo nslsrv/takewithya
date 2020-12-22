@@ -265,7 +265,7 @@ typedef Py_intptr_t     Py_ssize_t;
  * for platforms that support that.
  *
  * If PY_LOCAL_AGGRESSIVE is defined before python.h is included, more
- * "aggressive" inlining/optimizaion is enabled for the entire module.  This
+ * "aggressive" inlining/optimization is enabled for the entire module.  This
  * may lead to code bloat, and may slow things down for those reasons.  It may
  * also lead to errors, if the code relies on pointer aliasing.  Use with
  * care.
@@ -544,11 +544,6 @@ extern "C" {
  * Python/pystrtod.c for an example of their use.
  */
 
-/*
- * Disable macros below because they escape our memory sanitizer blacklist.
- * See DEVTOOLS-2248.
- */
-#ifdef _msan_enabled_
 /* get and set x87 control word for gcc/x86 */
 #ifdef HAVE_GCC_ASM_FOR_X87
 #define HAVE_PY_SET_53BIT_PRECISION 1
@@ -565,7 +560,6 @@ extern "C" {
 #define _Py_SET_53BIT_PRECISION_END                             \
     if (new_387controlword != old_387controlword)               \
         _Py_set_387controlword(old_387controlword)
-#endif
 #endif
 
 /* get and set x87 control word for VisualStudio/x86 */
@@ -698,7 +692,6 @@ extern int fclose(FILE *);
 extern int fdatasync(int);
 #endif /* 0 */
 
-
 /* On 4.4BSD-descendants, ctype functions serves the whole range of
  * wchar_t character set rather than single byte code points only.
  * This characteristic can break some operations of string object
@@ -708,7 +701,9 @@ extern int fdatasync(int);
 
 #ifdef __FreeBSD__
 #include <osreldate.h>
-#if __FreeBSD_version > 500039
+#if (__FreeBSD_version >= 500040 && __FreeBSD_version < 602113) || \
+    (__FreeBSD_version >= 700000 && __FreeBSD_version < 700054) || \
+    (__FreeBSD_version >= 800000 && __FreeBSD_version < 800001)
 # define _PY_PORT_CTYPE_UTF8_ISSUE
 #endif
 #endif
@@ -720,11 +715,11 @@ extern int fdatasync(int);
 
 #ifdef _PY_PORT_CTYPE_UTF8_ISSUE
 #ifndef __cplusplus
-/* The workaround below is unsafe in C++ because
- * the <locale> defines these symbols as real functions,
- * with a slightly different signature.
- * Details in https://trac.macports.org/ticket/44288
- */
+   /* The workaround below is unsafe in C++ because
+    * the <locale> defines these symbols as real functions,
+    * with a slightly different signature.
+    * See issue #10910
+    */
 #include <ctype.h>
 #include <wctype.h>
 #undef isalnum

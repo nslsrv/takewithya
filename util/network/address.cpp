@@ -10,7 +10,7 @@
 using namespace NAddr;
 
 template <bool printPort>
-static inline void PrintAddr(TOutputStream& out, const IRemoteAddr& addr) {
+static inline void PrintAddr(IOutputStream& out, const IRemoteAddr& addr) {
     const sockaddr* a = addr.Addr();
     char buf[INET6_ADDRSTRLEN + 10];
 
@@ -44,8 +44,8 @@ static inline void PrintAddr(TOutputStream& out, const IRemoteAddr& addr) {
             break;
         }
 
-#if defined(AF_LOCAL)
-        case AF_LOCAL: {
+#if defined(AF_UNIX)
+        case AF_UNIX: {
             const sockaddr_un* sa = (const sockaddr_un*)a;
 
             out << TStringBuf(sa->sun_path);
@@ -90,11 +90,31 @@ static inline void PrintAddr(TOutputStream& out, const IRemoteAddr& addr) {
 }
 
 template <>
-void Out<IRemoteAddr>(TOutputStream& out, const IRemoteAddr& addr) {
+void Out<IRemoteAddr>(IOutputStream& out, const IRemoteAddr& addr) {
     PrintAddr<true>(out, addr);
 }
 
-void NAddr::PrintHost(TOutputStream& out, const IRemoteAddr& addr) {
+template <>
+void Out<NAddr::TAddrInfo>(IOutputStream& out, const NAddr::TAddrInfo& addr) {
+    PrintAddr<true>(out, addr);
+}
+
+template <>
+void Out<NAddr::TIPv4Addr>(IOutputStream& out, const NAddr::TIPv4Addr& addr) {
+    PrintAddr<true>(out, addr);
+}
+
+template <>
+void Out<NAddr::TIPv6Addr>(IOutputStream& out, const NAddr::TIPv6Addr& addr) {
+    PrintAddr<true>(out, addr);
+}
+
+template <>
+void Out<NAddr::TOpaqueAddr>(IOutputStream& out, const NAddr::TOpaqueAddr& addr) {
+    PrintAddr<true>(out, addr);
+}
+
+void NAddr::PrintHost(IOutputStream& out, const IRemoteAddr& addr) {
     PrintAddr<false>(out, addr);
 }
 
@@ -111,13 +131,23 @@ TString NAddr::PrintHostAndPort(const IRemoteAddr& addr) {
 }
 
 IRemoteAddrPtr NAddr::GetSockAddr(SOCKET s) {
-    TAutoPtr<TOpaqueAddr> addr(new TOpaqueAddr());
+    auto addr = MakeHolder<TOpaqueAddr>();
 
     if (getsockname(s, addr->MutableAddr(), addr->LenPtr()) < 0) {
         ythrow TSystemError() << "getsockname() failed";
     }
 
-    return addr.Release();
+    return addr;
+}
+
+IRemoteAddrPtr NAddr::GetPeerAddr(SOCKET s) {
+    auto addr = MakeHolder<TOpaqueAddr>();
+
+    if (getpeername(s, addr->MutableAddr(), addr->LenPtr()) < 0) {
+        ythrow TSystemError() << "getpeername() failed";
+    }
+
+    return addr;
 }
 
 static const in_addr& InAddr(const IRemoteAddr& addr) {
@@ -130,7 +160,7 @@ static const in6_addr& In6Addr(const IRemoteAddr& addr) {
 
 bool NAddr::IsLoopback(const IRemoteAddr& addr) {
     if (addr.Addr()->sa_family == AF_INET) {
-        return InAddr(addr).s_addr == htonl(INADDR_LOOPBACK);
+        return ((ntohl(InAddr(addr).s_addr) >> 24) & 0xff) == 127;
     }
 
     if (addr.Addr()->sa_family == AF_INET6) {

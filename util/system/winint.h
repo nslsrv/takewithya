@@ -20,8 +20,6 @@
 #undef SendMessage
 #undef DeleteFile
 #undef OPTIONAL
-#undef S_OK
-#undef S_FALSE
 #undef GetUserName
 #undef CreateMutex
 #undef GetObject
@@ -31,6 +29,10 @@
 #undef GetKValue
 #undef StartDoc
 #undef UpdateResource
+#undef GetNameInfo
+#undef GetProp
+#undef SetProp
+#undef RemoveProp
 
 #undef IGNORE
 #undef ERROR

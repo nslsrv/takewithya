@@ -87,7 +87,7 @@ static inline TString Ip6ToString(const TIp6& ip) {
 }
 
 template <>
-inline void Out<TIp6>(TOutputStream& os, const TIp6& a) {
+inline void Out<TIp6>(IOutputStream& os, const TIp6& a) {
     os << Ip6ToString(a);
 }
 
@@ -107,10 +107,10 @@ static inline TIp4Or6 Ip4Or6FromString(const char* ipStr) {
 }
 
 static inline TString Ip4Or6ToString(const TIp4Or6& ip) {
-    if (ip.Is<TIp6>()) {
-        return Ip6ToString(ip.As<TIp6>());
+    if (HoldsAlternative<TIp6>(ip)) {
+        return Ip6ToString(Get<TIp6>(ip));
     } else {
-        return IpToString(ip.As<TIp4>());
+        return IpToString(Get<TIp4>(ip));
     }
 }
 

@@ -5,7 +5,7 @@
 #include <util/system/yassert.h>
 
 class TContIOVector {
-    using TPart = TOutputStream::TPart;
+    using TPart = IOutputStream::TPart;
 
 public:
     inline TContIOVector(TPart* parts, size_t count)
@@ -29,7 +29,7 @@ public:
         }
 
         if (len) {
-            Y_ASSERT(0 && "shit happen");
+            Y_ASSERT(0 && "non zero length left");
         }
     }
 

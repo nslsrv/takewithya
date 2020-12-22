@@ -8,21 +8,15 @@ LICENSE(
 
 PEERDIR(contrib/libs/cppdemangle)
 
-IF (CXX_UNWIND STREQUAL "glibcxx_dynamic")
+IF (CXX_UNWIND STREQUAL "glibcxx_dynamic" OR ARCH_PPC64LE)
     LDFLAGS(-lgcc_s)
 ELSE()
-    PEERDIR(contrib/libs/libunwind_master)
+    PEERDIR(contrib/libs/libunwind)
 ENDIF()
 
 ADDINCL(
     GLOBAL contrib/libs/cxxsupp/libcxxrt
 )
-
-IF (CLANG OR USE_LTO)
-    PEERDIR(
-        contrib/libs/cxxsupp/builtins
-    )
-ENDIF ()
 
 NO_RUNTIME()
 NO_COMPILER_WARNINGS()

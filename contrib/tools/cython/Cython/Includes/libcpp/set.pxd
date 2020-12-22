@@ -2,6 +2,7 @@ from .utility cimport pair
 
 cdef extern from "<set>" namespace "std" nogil:
     cdef cppclass set[T]:
+        ctypedef T value_type
         cppclass iterator:
             T& operator*()
             iterator operator++()
@@ -37,14 +38,14 @@ cdef extern from "<set>" namespace "std" nogil:
         const_iterator const_end "end"()
         pair[iterator, iterator] equal_range(const T&)
         #pair[const_iterator, const_iterator] equal_range(T&)
-        void erase(iterator)
-        void erase(iterator, iterator)
+        iterator erase(iterator)
+        iterator erase(iterator, iterator)
         size_t erase(T&)
         iterator find(T&)
         const_iterator const_find "find"(T&)
         pair[iterator, bint] insert(const T&) except +
         iterator insert(iterator, const T&) except +
-        #void insert(input_iterator, input_iterator)
+        void insert(iterator, iterator) except +
         #key_compare key_comp()
         iterator lower_bound(T&)
         const_iterator const_lower_bound "lower_bound"(T&)

@@ -1,4 +1,4 @@
-#include <library/testing/benchmark/bench.h>
+#include <library/cpp/testing/benchmark/bench.h>
 
 #include <util/generic/singleton.h>
 #include <util/generic/xrange.h>
@@ -8,6 +8,9 @@ char& FF2() noexcept;
 
 namespace {
     struct X {
+        inline X() {
+        }
+
         char Buf[100];
     };
 

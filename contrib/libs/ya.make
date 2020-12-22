@@ -1,33 +1,51 @@
 
 
 RECURSE(
+    android_ifaddrs
     base64
+    brotli
     clapack
     coreml
+    cppdemangle
+    crcutil
     cxxsupp/libcxx
+    cxxsupp/libcxx-filesystem
+    expat
     fastlz
+    flatbuffers
     fmath
+    gamma_function_apache_math_port
+    jdk
     jemalloc
     libbz2
-    libunwind_master
+    libc_compat
+    libunwind
+    linux-headers
     linuxvdso
     lz4
     lz4/generated
     lzmasdk
+    nayuki_md5
+    onnx
     openssl
     openssl/apps
     openssl/dynamic
     protobuf
     protobuf/python
-    protobuf/java
-    protobuf/ut
+    protobuf/python/test
+    pugixml
+    python
+    python/ut
+    r-lang
+    re2
     snappy
     sqlite3
-    yaml
+    tbb
+    tensorboard
+    xxhash
     zlib
-    zstd01
-    zstd06
     zstd
+    zstd06
 )
 
 IF (OS_FREEBSD OR OS_LINUX)
@@ -44,7 +62,7 @@ ENDIF()
 
 IF (OS_LINUX)
     RECURSE(
-    
+    ibdrv
 )
 ENDIF()
 
@@ -54,17 +72,11 @@ IF (OS_WINDOWS)
 )
 ELSE()
     RECURSE(
-    
+    re2/tests
 )
 ENDIF()
 
 IF (OS_LINUX OR OS_WINDOWS)
-    RECURSE(
-    
-)
-ENDIF()
-
-IF (OS_IOS)
     RECURSE(
     
 )
@@ -83,7 +95,7 @@ IF (OS_ANDROID)
 )
 ENDIF()
 
-IF (ARCH_PPC64LE)
+IF (OS_IOS AND ARCH_ARM64 OR OS_DARWIN)
     RECURSE(
     
 )

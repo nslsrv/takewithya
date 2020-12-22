@@ -1,7 +1,7 @@
 #include "bitops.h"
 #include "ymath.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/stream/output.h>
 #include <util/datetime/cputimer.h>
@@ -33,6 +33,8 @@ class TMathTest: public TTestBase {
     UNIT_TEST(TestIsValidFloat);
     UNIT_TEST(TestAbs);
     UNIT_TEST(TestPower);
+    UNIT_TEST(TestSigmoid);
+    UNIT_TEST(TestCeilDiv);
     UNIT_TEST_SUITE_END();
 
 private:
@@ -42,6 +44,8 @@ private:
     void TestLogGamma();
     void TestAbs();
     void TestPower();
+    void TestSigmoid();
+    void TestCeilDiv();
 
     inline void TestIsValidFloat() {
         UNIT_ASSERT(IsValidFloat(-Max<double>() / 2.));
@@ -176,4 +180,41 @@ void TMathTest::TestPower() {
     UNIT_ASSERT_VALUES_EQUAL(Power(2LL, 32), 1LL << 32);
     UNIT_ASSERT_DOUBLES_EQUAL(Power(0.0, 0), 1.0, 1e-9);
     UNIT_ASSERT_DOUBLES_EQUAL(Power(0.1, 3), 1e-3, 1e-9);
+}
+
+void TMathTest::TestSigmoid() {
+    UNIT_ASSERT_EQUAL(Sigmoid(0.f), 0.5f);
+    UNIT_ASSERT_EQUAL(Sigmoid(-5000.f), 0.0f);
+    UNIT_ASSERT_EQUAL(Sigmoid(5000.f), 1.0f);
+
+    UNIT_ASSERT_EQUAL(Sigmoid(0.), 0.5);
+    UNIT_ASSERT_EQUAL(Sigmoid(-5000.), 0.0);
+    UNIT_ASSERT_EQUAL(Sigmoid(5000.), 1.0);
+}
+
+void TMathTest::TestCeilDiv() {
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui8>(2, 3), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui8>(3, 3), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui32>(12, 2), 6);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui64>(10, 3), 4);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui64>(0, 10), 0);
+
+    // negative numbers
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(0, -10), 0);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-1, 2), 0);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-1, -2), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(10, -5), -2);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-3, -4), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-6, -4), 2);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-6, 4), -1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-13, 4), -3);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv(-14, -4), 4);
+
+    // check values close to overflow
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui8>(255, 10), 26);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<ui32>(std::numeric_limits<ui32>::max() - 3, std::numeric_limits<ui32>::max()), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<i32>(std::numeric_limits<i32>::max() - 3, std::numeric_limits<i32>::max()), 1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<i32>(std::numeric_limits<i32>::min(), std::numeric_limits<i32>::max()), -1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<i8>(std::numeric_limits<i8>::max(), std::numeric_limits<i8>::min() + 1), -1);
+    UNIT_ASSERT_VALUES_EQUAL(CeilDiv<i64>(std::numeric_limits<i64>::max() - 2, -(std::numeric_limits<i64>::min() + 1)), 1);
 }

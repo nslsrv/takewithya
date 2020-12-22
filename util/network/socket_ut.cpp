@@ -1,11 +1,18 @@
 #include "socket.h"
 
-#include <library/unittest/registar.h>
+#include "pair.h"
+
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/string/builder.h>
 #include <util/generic/vector.h>
 
 #include <ctime>
+
+#ifdef _linux_
+#include <linux/version.h>
+#include <sys/utsname.h>
+#endif
 
 class TSockTest: public TTestBase {
     UNIT_TEST_SUITE(TSockTest);
@@ -15,6 +22,10 @@ class TSockTest: public TTestBase {
     UNIT_TEST_EXCEPTION(TestConnectionRefused, yexception);
 #endif
     UNIT_TEST(TestNetworkResolutionError);
+    UNIT_TEST(TestNetworkResolutionErrorMessage);
+    UNIT_TEST(TestBrokenPipe);
+    UNIT_TEST(TestClose);
+    UNIT_TEST(TestReusePortAvailCheck);
     UNIT_TEST_SUITE_END();
 
 public:
@@ -22,6 +33,10 @@ public:
     void TestTimeout();
     void TestConnectionRefused();
     void TestNetworkResolutionError();
+    void TestNetworkResolutionErrorMessage();
+    void TestBrokenPipe();
+    void TestClose();
+    void TestReusePortAvailCheck();
 };
 
 UNIT_TEST_SUITE_REGISTRATION(TSockTest);
@@ -31,9 +46,9 @@ void TSockTest::TestSock() {
     TSocket s(addr);
     TSocketOutput so(s);
     TSocketInput si(s);
-    const TStringBuf req = STRINGBUF("GET / HTTP/1.1\r\nHost: yandex.ru\r\n\r\n");
+    const TStringBuf req = "GET / HTTP/1.1\r\nHost: yandex.ru\r\n\r\n";
 
-    so.Write(~req, +req);
+    so.Write(req.data(), req.size());
 
     UNIT_ASSERT(!si.ReadLine().empty());
 }
@@ -74,6 +89,126 @@ void TSockTest::TestNetworkResolutionError() {
     if (errMsg.find(expectedErrMsg) == TString::npos) {
         UNIT_FAIL("TNetworkResolutionError contains\nInvalid msg: " + errMsg + "\nExpected msg: " + expectedErrMsg + "\n");
     }
+}
+
+void TSockTest::TestNetworkResolutionErrorMessage() {
+#ifdef _unix_
+    auto str = [](int code) -> TString {
+        return TNetworkResolutionError(code).what();
+    };
+
+    auto expected = [](int code) -> TString {
+        return gai_strerror(code);
+    };
+
+    struct TErrnoGuard {
+        TErrnoGuard()
+            : PrevValue(errno)
+        {
+        }
+
+        ~TErrnoGuard() {
+            errno = PrevValue;
+        }
+
+    private:
+        int PrevValue;
+    } g;
+
+    UNIT_ASSERT_VALUES_EQUAL(expected(0) + "(0): ", str(0));
+    UNIT_ASSERT_VALUES_EQUAL(expected(-9) + "(-9): ", str(-9));
+
+    errno = 0;
+    UNIT_ASSERT_VALUES_EQUAL(expected(EAI_SYSTEM) + "(" + IntToString<10>(EAI_SYSTEM) + "; errno=0): ",
+                             str(EAI_SYSTEM));
+    errno = 110;
+    UNIT_ASSERT_VALUES_EQUAL(expected(EAI_SYSTEM) + "(" + IntToString<10>(EAI_SYSTEM) + "; errno=110): ",
+                             str(EAI_SYSTEM));
+#endif
+}
+
+class TTempEnableSigPipe {
+public:
+    TTempEnableSigPipe() {
+        OriginalSigHandler = signal(SIGPIPE, SIG_DFL);
+        Y_VERIFY(OriginalSigHandler != SIG_ERR);
+    }
+
+    ~TTempEnableSigPipe() {
+        auto ret = signal(SIGPIPE, OriginalSigHandler);
+        Y_VERIFY(ret != SIG_ERR);
+    }
+
+private:
+    void (*OriginalSigHandler)(int);
+};
+
+void TSockTest::TestBrokenPipe() {
+    TTempEnableSigPipe guard;
+
+    SOCKET socks[2];
+
+    int ret = SocketPair(socks);
+    UNIT_ASSERT_VALUES_EQUAL(ret, 0);
+
+    TSocket sender(socks[0]);
+    TSocket receiver(socks[1]);
+    receiver.ShutDown(SHUT_RDWR);
+    int sent = sender.Send("FOO", 3);
+    UNIT_ASSERT(sent < 0);
+
+    IOutputStream::TPart parts[] = {
+        {"foo", 3},
+        {"bar", 3},
+    };
+    sent = sender.SendV(parts, 2);
+    UNIT_ASSERT(sent < 0);
+}
+
+void TSockTest::TestClose() {
+    SOCKET socks[2];
+
+    UNIT_ASSERT_EQUAL(SocketPair(socks), 0);
+    TSocket receiver(socks[1]);
+
+    UNIT_ASSERT_EQUAL(static_cast<SOCKET>(receiver), socks[1]);
+
+#if defined _linux_
+    UNIT_ASSERT_GE(fcntl(socks[1], F_GETFD), 0);
+    receiver.Close();
+    UNIT_ASSERT_EQUAL(fcntl(socks[1], F_GETFD), -1);
+#else
+    receiver.Close();
+#endif
+
+    UNIT_ASSERT_EQUAL(static_cast<SOCKET>(receiver), INVALID_SOCKET);
+}
+
+void TSockTest::TestReusePortAvailCheck() {
+#if defined _linux_
+    utsname sysInfo;
+    Y_VERIFY(!uname(&sysInfo), "Error while call uname: %s", LastSystemErrorText());
+    TStringBuf release(sysInfo.release);
+    release = release.substr(0, release.find_first_not_of(".0123456789"));
+    int v1 = FromString<int>(release.NextTok('.'));
+    int v2 = FromString<int>(release.NextTok('.'));
+    int v3 = FromString<int>(release.NextTok('.'));
+    int linuxVersionCode = KERNEL_VERSION(v1, v2, v3);
+    if (linuxVersionCode >= KERNEL_VERSION(3, 9, 1)) {
+        // new kernels support SO_REUSEPORT
+        UNIT_ASSERT(true == IsReusePortAvailable());
+        UNIT_ASSERT(true == IsReusePortAvailable());
+    } else {
+        // older kernels may or may not support SO_REUSEPORT
+        // just check that it doesn't crash or throw
+        (void)IsReusePortAvailable();
+        (void)IsReusePortAvailable();
+    }
+#else
+    // check that it doesn't crash or throw
+    (void)IsReusePortAvailable();
+    (void)IsReusePortAvailable();
+#endif
 }
 
 class TPollTest: public TTestBase {
@@ -148,9 +283,9 @@ void TPollTest::TestPollInOut() {
 
     ui32 localIp = ntohl(inet_addr("127.0.0.1"));
 
-    yvector<TSimpleSharedPtr<TSocketHolder>> clientSockets;
-    yvector<TSimpleSharedPtr<TSocketHolder>> connectedSockets;
-    yvector<pollfd> fds;
+    TVector<TSimpleSharedPtr<TSocketHolder>> clientSockets;
+    TVector<TSimpleSharedPtr<TSocketHolder>> connectedSockets;
+    TVector<pollfd> fds;
 
     for (size_t i = 0; i < socketCount; ++i) {
         TSimpleSharedPtr<TSocketHolder> clientSocket(new TSocketHolder(StartClientSocket(localIp, port)));
@@ -173,7 +308,7 @@ void TPollTest::TestPollInOut() {
 
     int expectedCount = 0;
     for (size_t i = 0; i < connectedSockets.size(); ++i) {
-        pollfd fd = {(i % 5 == 4) ? INVALID_SOCKET : *connectedSockets[i], POLLIN | POLLOUT, 0};
+        pollfd fd = {(i % 5 == 4) ? INVALID_SOCKET : static_cast<SOCKET>(*connectedSockets[i]), POLLIN | POLLOUT, 0};
         fds.push_back(fd);
         if (i % 5 != 4)
             ++expectedCount;

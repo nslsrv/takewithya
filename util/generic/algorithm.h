@@ -73,6 +73,16 @@ static inline void StableSort(T f, T l, C c) {
     std::stable_sort(f, l, c);
 }
 
+template <class TContainer>
+static inline void StableSort(TContainer& container) {
+    StableSort(container.begin(), container.end());
+}
+
+template <class TContainer, typename TCompare>
+static inline void StableSort(TContainer& container, TCompare compare) {
+    StableSort(container.begin(), container.end(), compare);
+}
+
 template <class TIterator, typename TGetKey>
 static inline void StableSortBy(TIterator begin, TIterator end, const TGetKey& getKey) {
     StableSort(begin, end, [&](auto&& left, auto&& right) { return getKey(left) < getKey(right); });
@@ -116,6 +126,20 @@ static inline auto Find(C&& c, const T& v) {
     return std::find(begin(c), end(c), v);
 }
 
+// FindPtr - return NULL if not found. Works for arrays, containers, iterators
+template <class I, class T>
+static inline auto FindPtr(I f, I l, const T& v) -> decltype(&*f) {
+    I found = Find(f, l, v);
+    return (found != l) ? &*found : nullptr;
+}
+
+template <class C, class T>
+static inline auto FindPtr(C&& c, const T& v) {
+    using std::begin;
+    using std::end;
+    return FindPtr(begin(c), end(c), v);
+}
+
 template <class I, class P>
 static inline I FindIf(I f, I l, P p) {
     return std::find_if(f, l, p);
@@ -136,7 +160,9 @@ static inline bool AllOf(I f, I l, P pred) {
 
 template <class C, class P>
 static inline bool AllOf(const C& c, P pred) {
-    return AllOf(c.begin(), c.end(), pred);
+    using std::begin;
+    using std::end;
+    return AllOf(begin(c), end(c), pred);
 }
 
 template <class I, class P>
@@ -146,7 +172,9 @@ static inline bool AnyOf(I f, I l, P pred) {
 
 template <class C, class P>
 static inline bool AnyOf(const C& c, P pred) {
-    return AnyOf(c.begin(), c.end(), pred);
+    using std::begin;
+    using std::end;
+    return AnyOf(begin(c), end(c), pred);
 }
 
 // FindIfPtr - return NULL if not found. Works for arrays, containers, iterators
@@ -158,24 +186,25 @@ static inline auto FindIfPtr(I f, I l, P pred) -> decltype(&*f) {
 
 template <class C, class P>
 static inline auto FindIfPtr(C&& c, P pred) {
-    return FindIfPtr(c.begin(), c.end(), pred);
-}
-
-template <size_t N, class T, class P>
-static inline T* FindIfPtr(T (&c)[N], P pred) {
-    return FindIfPtr(c, c + N, pred);
+    using std::begin;
+    using std::end;
+    return FindIfPtr(begin(c), end(c), pred);
 }
 
 template <class C, class T>
-static inline size_t FindIndex(C& c, const T& x) {
-    auto it = Find(c.begin(), c.end(), x);
-    return it == c.end() ? NPOS : (it - c.begin());
+static inline size_t FindIndex(C&& c, const T& x) {
+    using std::begin;
+    using std::end;
+    auto it = Find(begin(c), end(c), x);
+    return it == end(c) ? NPOS : (it - begin(c));
 }
 
-template <class U, size_t N, class T>
-static inline size_t FindIndex(U (&c)[N], const T& x) {
-    auto it = Find(c, c + N, x);
-    return it == (c + N) ? NPOS : (it - c);
+template <class C, class P>
+static inline size_t FindIndexIf(C&& c, P p) {
+    using std::begin;
+    using std::end;
+    auto it = FindIf(begin(c), end(c), p);
+    return it == end(c) ? NPOS : (it - begin(c));
 }
 
 //EqualToOneOf(x, "apple", "orange") means (x == "apple" || x == "orange")
@@ -287,25 +316,25 @@ static inline T UniqueBy(T f, T l, const TGetKey& getKey) {
 template <class C>
 void SortUnique(C& c) {
     Sort(c.begin(), c.end());
-    c.resize(Unique(c.begin(), c.end()) - c.begin());
+    c.erase(Unique(c.begin(), c.end()), c.end());
 }
 
 template <class C, class Cmp>
 void SortUnique(C& c, Cmp cmp) {
     Sort(c.begin(), c.end(), cmp);
-    c.resize(Unique(c.begin(), c.end()) - c.begin());
+    c.erase(Unique(c.begin(), c.end()), c.end());
 }
 
 template <class C, class TGetKey>
 void SortUniqueBy(C& c, const TGetKey& getKey) {
     SortBy(c, getKey);
-    c.resize(UniqueBy(c.begin(), c.end(), getKey) - c.begin());
+    c.erase(UniqueBy(c.begin(), c.end(), getKey), c.end());
 }
 
 template <class C, class TGetKey>
 void StableSortUniqueBy(C& c, const TGetKey& getKey) {
     StableSortBy(c, getKey);
-    c.resize(UniqueBy(c.begin(), c.end(), getKey) - c.begin());
+    c.erase(UniqueBy(c.begin(), c.end(), getKey), c.end());
 }
 
 template <class C, class TValue>
@@ -316,6 +345,17 @@ void Erase(C& c, const TValue& value) {
 template <class C, class P>
 void EraseIf(C& c, P p) {
     c.erase(std::remove_if(c.begin(), c.end(), p), c.end());
+}
+
+template <class C, class P>
+void EraseNodesIf(C& c, P p) {
+    for (auto iter = c.begin(), last = c.end(); iter != last;) {
+        if (p(*iter)) {
+            c.erase(iter++);
+        } else {
+            ++iter;
+        }
+    }
 }
 
 template <class T1, class T2>
@@ -414,23 +454,27 @@ static inline void Rotate(T f, T m, T l) {
 }
 
 template <typename It, typename Val>
-static inline Val Accumulate(It begin, It end, Val val) {
-    return std::accumulate(begin, end, val);
+Val Accumulate(It begin, It end, Val val) {
+    // std::move since C++20
+    return std::accumulate(begin, end, std::move(val));
 }
 
 template <typename It, typename Val, typename BinOp>
-static inline Val Accumulate(It begin, It end, Val val, BinOp binOp) {
-    return std::accumulate(begin, end, val, binOp);
+Val Accumulate(It begin, It end, Val val, BinOp binOp) {
+    // std::move since C++20
+    return std::accumulate(begin, end, std::move(val), binOp);
 }
 
-template <typename TVector>
-static inline typename TVector::value_type Accumulate(const TVector& v, typename TVector::value_type val = typename TVector::value_type()) {
-    return Accumulate(v.begin(), v.end(), val);
+template <typename C, typename Val>
+Val Accumulate(const C& c, Val val) {
+    // std::move since C++20
+    return Accumulate(std::begin(c), std::end(c), std::move(val));
 }
 
-template <typename TVector, typename BinOp>
-static inline typename TVector::value_type Accumulate(const TVector& v, typename TVector::value_type val, BinOp binOp) {
-    return Accumulate(v.begin(), v.end(), val, binOp);
+template <typename C, typename Val, typename BinOp>
+Val Accumulate(const C& c, Val val, BinOp binOp) {
+    // std::move since C++20
+    return Accumulate(std::begin(c), std::end(c), std::move(val), binOp);
 }
 
 template <typename It1, typename It2, typename Val>
@@ -443,13 +487,13 @@ static inline Val InnerProduct(It1 begin1, It1 end1, It2 begin2, Val val, BinOp1
     return std::inner_product(begin1, end1, begin2, val, binOp1, binOp2);
 }
 
-template <typename TVector>
-static inline typename TVector::value_type InnerProduct(const TVector& lhs, const TVector& rhs, typename TVector::value_type val = typename TVector::value_type()) {
+template <typename TVectorType>
+static inline typename TVectorType::value_type InnerProduct(const TVectorType& lhs, const TVectorType& rhs, typename TVectorType::value_type val = typename TVectorType::value_type()) {
     return std::inner_product(lhs.begin(), lhs.end(), rhs.begin(), val);
 }
 
-template <typename TVector, typename BinOp1, typename BinOp2>
-static inline typename TVector::value_type InnerProduct(const TVector& lhs, const TVector& rhs, typename TVector::value_type val, BinOp1 binOp1, BinOp2 binOp2) {
+template <typename TVectorType, typename BinOp1, typename BinOp2>
+static inline typename TVectorType::value_type InnerProduct(const TVectorType& lhs, const TVectorType& rhs, typename TVectorType::value_type val, BinOp1 binOp1, BinOp2 binOp2) {
     return std::inner_product(lhs.begin(), lhs.end(), rhs.begin(), val, binOp1, binOp2);
 }
 
@@ -480,6 +524,11 @@ I MaxElementBy(I begin, I end, F&& func) {
 }
 
 template <class C, class F>
+auto MaxElementBy(C& c, F&& func) {
+    return MaxElementBy(std::begin(c), std::end(c), std::forward<F>(func));
+}
+
+template <class C, class F>
 auto MaxElementBy(const C& c, F&& func) {
     return MaxElementBy(std::begin(c), std::end(c), std::forward<F>(func));
 }
@@ -491,13 +540,87 @@ I MinElementBy(I begin, I end, F&& func) {
 }
 
 template <class C, class F>
+auto MinElementBy(C& c, F&& func) {
+    return MinElementBy(std::begin(c), std::end(c), std::forward<F>(func));
+}
+
+template <class C, class F>
 auto MinElementBy(const C& c, F&& func) {
     return MinElementBy(std::begin(c), std::end(c), std::forward<F>(func));
 }
 
+template <class TOp, class... TArgs>
+void ApplyToMany(TOp op, TArgs&&... args) {
+    int dummy[] = {((void)op(std::forward<TArgs>(args)), 0)...};
+    Y_UNUSED(dummy);
+}
+
 template <class TI, class TOp>
-static inline void ForEach(TI f, TI l, TOp op) {
+inline void ForEach(TI f, TI l, TOp op) {
     std::for_each(f, l, op);
+}
+
+namespace NPrivate {
+    template <class T, class TOp, size_t... Is>
+    constexpr bool AllOfImpl(T&& t, TOp&& op, std::index_sequence<Is...>) {
+#if _LIBCPP_STD_VER >= 17
+        return (true && ... && op(std::get<Is>(std::forward<T>(t))));
+#else
+        bool result = true;
+        auto wrapper = [&result, &op](auto&& x) { result = result && op(std::forward<decltype(x)>(x)); };
+        int dummy[] = {(wrapper(std::get<Is>(std::forward<T>(t))), 0)...};
+        Y_UNUSED(dummy);
+        return result;
+#endif
+    }
+
+    template <class T, class TOp, size_t... Is>
+    constexpr bool AnyOfImpl(T&& t, TOp&& op, std::index_sequence<Is...>) {
+#if _LIBCPP_STD_VER >= 17
+        return (false || ... || op(std::get<Is>(std::forward<T>(t))));
+#else
+        bool result = false;
+        auto wrapper = [&result, &op](auto&& x) { result = result || op(std::forward<decltype(x)>(x)); };
+        int dummy[] = {(wrapper(std::get<Is>(std::forward<T>(t))), 0)...};
+        Y_UNUSED(dummy);
+        return result;
+#endif
+    }
+
+    template <class T, class TOp, size_t... Is>
+    constexpr void ForEachImpl(T&& t, TOp&& op, std::index_sequence<Is...>) {
+#if _LIBCPP_STD_VER >= 17
+        (..., op(std::get<Is>(std::forward<T>(t))));
+#else
+        ::ApplyToMany(std::forward<TOp>(op), std::get<Is>(std::forward<T>(t))...);
+#endif
+    }
+}
+
+// check that TOp return true for all of element from tuple T
+template <class T, class TOp>
+constexpr ::TEnableIfTuple<T, bool> AllOf(T&& t, TOp&& op) {
+    return ::NPrivate::AllOfImpl(
+            std::forward<T>(t),
+            std::forward<TOp>(op),
+            std::make_index_sequence<std::tuple_size<std::decay_t<T>>::value>{});
+}
+
+// check that TOp return true for at least one element from tuple T
+template <class T, class TOp>
+constexpr ::TEnableIfTuple<T, bool> AnyOf(T&& t, TOp&& op) {
+    return ::NPrivate::AnyOfImpl(
+            std::forward<T>(t),
+            std::forward<TOp>(op),
+            std::make_index_sequence<std::tuple_size<std::decay_t<T>>::value>{});
+}
+
+template <class T, class TOp>
+constexpr ::TEnableIfTuple<T> ForEach(T&& t, TOp&& op) {
+    ::NPrivate::ForEachImpl(
+        std::forward<T>(t),
+        std::forward<TOp>(op),
+        std::make_index_sequence<std::tuple_size<std::decay_t<T>>::value>{});
 }
 
 template <class T1, class T2, class O>
@@ -515,6 +638,11 @@ inline typename std::iterator_traits<T>::difference_type Count(T first, T last, 
     return std::count(first, last, value);
 }
 
+template <class TContainer, class TValue>
+static inline auto Count(const TContainer& container, const TValue& value) {
+    return Count(std::cbegin(container), std::cend(container), value);
+}
+
 template <class It, class P>
 static inline auto CountIf(It first, It last, P p) {
     return std::count_if(first, last, p);
@@ -522,7 +650,9 @@ static inline auto CountIf(It first, It last, P p) {
 
 template <class C, class P>
 static inline auto CountIf(const C& c, P pred) {
-    return CountIf(c.begin(), c.end(), pred);
+    using std::begin;
+    using std::end;
+    return CountIf(begin(c), end(c), pred);
 }
 
 template <class I1, class I2>
@@ -594,6 +724,11 @@ bool IsSorted(ForwardIt begin, ForwardIt end, Compare comp) {
     return std::is_sorted(begin, end, comp);
 }
 
+template <class TIterator, typename TGetKey>
+bool IsSortedBy(TIterator begin, TIterator end, const TGetKey& getKey) {
+    return IsSorted(begin, end, [&](auto&& left, auto&& right) { return getKey(left) < getKey(right); });
+}
+
 template <class It, class Val>
 void Iota(It begin, It end, Val val) {
     std::iota(begin, end, val);
@@ -617,4 +752,14 @@ std::pair<const T&, const T&> MinMax(const T& first, const T& second) {
 template <class It>
 std::pair<It, It> MinMaxElement(It first, It last) {
     return std::minmax_element(first, last);
+}
+
+template <class TIterator, class TGenerator>
+void Generate(TIterator first, TIterator last, TGenerator generator) {
+    std::generate(first, last, generator);
+}
+
+template <class TIterator, class TSize, class TGenerator>
+void GenerateN(TIterator first, TSize count, TGenerator generator) {
+    std::generate_n(first, count, generator);
 }

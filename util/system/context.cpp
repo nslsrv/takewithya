@@ -9,15 +9,33 @@
 #include "winint.h"
 #endif
 
+#if defined(_unix_)
+#include <cxxabi.h>
+
+#if !defined(Y_CXA_EH_GLOBALS_COMPLETE)
+namespace __cxxabiv1 {
+    struct __cxa_eh_globals {
+        void* caughtExceptions;
+        unsigned int uncaughtExceptions;
+    };
+
+    extern "C" __cxa_eh_globals* __cxa_get_globals();
+}
+#endif
+#endif
+
 #include <util/stream/output.h>
 #include <util/generic/yexception.h>
 
 #define FROM_CONTEXT_IMPL
 #include "context.h"
 
-static inline void Run(void* arg) {
+void ITrampoLine::DoRun() {
+}
+
+void ITrampoLine::DoRunNaked() {
     try {
-        ((ITrampoLine*)arg)->DoRun();
+        DoRun();
     } catch (...) {
         Cerr << "Uncaught exception in coroutine: " << CurrentExceptionMessage() << "\n";
     }
@@ -25,24 +43,28 @@ static inline void Run(void* arg) {
     abort();
 }
 
+static inline void Run(void* arg) {
+    ((ITrampoLine*)arg)->DoRunNaked();
+}
+
 #if defined(USE_JUMP_CONT)
 extern "C" void __mylongjmp(__myjmp_buf env, int val) __attribute__((__noreturn__));
 extern "C" int __mysetjmp(__myjmp_buf env) __attribute__((__returns_twice__));
 
 namespace {
-    class TStack {
+    class TStackType {
     public:
-        inline TStack(TMemRegion range) noexcept
+        inline TStackType(TArrayRef<char> range) noexcept
 #if defined(STACK_GROW_DOWN)
-            : Data_(range.Data() + range.Size())
+            : Data_(range.data() + range.size())
 #else
-            : Data_(range.Data() + STACK_ALIGN)
+            : Data_(range.data() + STACK_ALIGN)
 #endif
         {
             ReAlign();
         }
 
-        inline ~TStack() = default;
+        inline ~TStackType() = default;
 
         inline void ReAlign() noexcept {
             Data_ = AlignStackPtr(Data_);
@@ -88,6 +110,10 @@ namespace {
         return JmpBufReg(buf, PROGR_CNT);
     }
 
+    static inline void*& JmpBufFrameReg(__myjmp_buf& buf) noexcept {
+        return JmpBufReg(buf, FRAME_CNT);
+    }
+
     Y_NO_SANITIZE("address")
     Y_NO_SANITIZE("memory")
     static void ContextTrampoLine() {
@@ -104,25 +130,25 @@ TContMachineContext::TSan::TSan() noexcept
 }
 
 TContMachineContext::TSan::TSan(const TContClosure& c) noexcept
-    : NSan::TFiberContext(c.Stack.Data(), c.Stack.Size())
+    : NSan::TFiberContext(c.Stack.data(), c.Stack.size(), c.ContName)
     , TL(c.TrampoLine)
 {
 }
 
-void TContMachineContext::TSan::DoRun() {
+void TContMachineContext::TSan::DoRunNaked() {
     AfterSwitch();
-    TL->DoRun();
+    TL->DoRunNaked();
     BeforeFinish();
 }
 
 TContMachineContext::TContMachineContext(const TContClosure& c)
-#if defined(_asan_enabled_)
+#if defined(_asan_enabled_) || defined(_tsan_enabled_)
     : San_(c)
 #endif
 {
-    TStack stack(c.Stack);
+    TStackType stack(c.Stack);
 
-/*
+    /*
      * arg, and align data
      */
 
@@ -145,13 +171,14 @@ TContMachineContext::TContMachineContext(const TContClosure& c)
 
     __mysetjmp(Buf_);
 
-    JmpBufProgrReg(Buf_) = ReinterpretCast<void*>(ContextTrampoLine);
+    JmpBufProgrReg(Buf_) = reinterpret_cast<void*>(ContextTrampoLine);
     JmpBufStackReg(Buf_) = stack.StackPtr();
+    JmpBufFrameReg(Buf_) = nullptr;
 }
 
 void TContMachineContext::SwitchTo(TContMachineContext* next) noexcept {
     if (Y_LIKELY(__mysetjmp(Buf_) == 0)) {
-#if defined(_asan_enabled_)
+#if defined(_asan_enabled_) || defined(_tsan_enabled_)
         next->San_.BeforeSwitch();
 #endif
         __mylongjmp(next->Buf_, 1);
@@ -172,14 +199,14 @@ TContMachineContext::TContMachineContext()
     : Fiber_(ConvertThreadToFiber(this))
     , MainFiber_(true)
 {
-    Y_ENSURE(Fiber_, STRINGBUF("fiber error"));
+    Y_ENSURE(Fiber_, TStringBuf("fiber error"));
 }
 
 TContMachineContext::TContMachineContext(const TContClosure& c)
-    : Fiber_(CreateFiber(c.Stack.Size(), (LPFIBER_START_ROUTINE)ContextTrampoLine, (LPVOID)c.TrampoLine))
+    : Fiber_(CreateFiber(c.Stack.size(), (LPFIBER_START_ROUTINE)ContextTrampoLine, (LPVOID)c.TrampoLine))
     , MainFiber_(false)
 {
-    Y_ENSURE(Fiber_, STRINGBUF("fiber error"));
+    Y_ENSURE(Fiber_, TStringBuf("fiber error"));
 }
 
 TContMachineContext::~TContMachineContext() {
@@ -209,7 +236,7 @@ struct TContMachineContext::TImpl {
         : TL(c.TrampoLine)
         , Finish(false)
     {
-        Thread.Reset(new TThread(TThread::TParams(Run, this).SetStackSize(c.Stack.Size()).SetStackPointer((void*)c.Stack.Data())));
+        Thread.Reset(new TThread(TThread::TParams(Run, this).SetStackSize(c.Stack.size()).SetStackPointer((void*)c.Stack.data())));
         Thread->Start();
     }
 
@@ -273,3 +300,15 @@ void TContMachineContext::SwitchTo(TContMachineContext* next) noexcept {
     Impl_->SwitchTo(next->Impl_.Get());
 }
 #endif
+
+void TExceptionSafeContext::SwitchTo(TExceptionSafeContext* to) noexcept {
+#if defined(_unix_)
+    static_assert(sizeof(__cxxabiv1::__cxa_eh_globals) == sizeof(Buf_), "size mismatch of __cxa_eh_globals structure");
+
+    auto* eh = __cxxabiv1::__cxa_get_globals();
+    ::memcpy(Buf_, eh, sizeof(Buf_));
+    ::memcpy(eh, to->Buf_, sizeof(Buf_));
+#endif
+
+    TContMachineContext::SwitchTo(to);
+}

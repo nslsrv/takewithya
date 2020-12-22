@@ -1,17 +1,22 @@
 #pragma once
 
 /// This code should not be used directly unless you really understand what you do.
-/// If you need threads, use thread pool functionality in <util/thread/pool.h>
-/// @see SystemThreadPool()
+/// If you need threads, use thread pool functionality in <util/thread/factory.h>
+/// @see SystemThreadFactory()
 
 #include <util/generic/ptr.h>
 #include <util/generic/string.h>
 
 #include "defaults.h"
+#include "progname.h"
 
 bool SetHighestThreadPriority();
 
 class TThread {
+    template <typename Callable>
+    struct TCallableParams;
+    struct TPrivateCtor {};
+
 public:
     using TThreadProc = void* (*)(void*);
     using TId = size_t;
@@ -21,7 +26,8 @@ public:
         void* Data;
         size_t StackSize;
         void* StackPointer;
-        TString Name;
+        // See comments for `SetCurrentThreadName`
+        TString Name = GetProgramName();
 
         inline TParams()
             : Proc(nullptr)
@@ -69,6 +75,22 @@ public:
     TThread(const TParams& params);
     TThread(TThreadProc threadProc, void* param);
 
+    template <typename Callable>
+    TThread(Callable&& callable)
+        : TThread(TPrivateCtor{},
+                  MakeHolder<TCallableParams<Callable>>(std::forward<Callable>(callable))) {
+    }
+
+    TThread(TParams&& params)
+        : TThread((const TParams&)params)
+    {
+    }
+
+    TThread(TParams& params)
+        : TThread((const TParams&)params)
+    {
+    }
+
     ~TThread();
 
     void Start();
@@ -80,19 +102,59 @@ public:
 
     static TId ImpossibleThreadId() noexcept;
     static TId CurrentThreadId() noexcept;
-    /// content of `name` parameter is copied
-    static void CurrentThreadSetName(const char* name);
+
+    // NOTE: Content of `name` will be copied.
+    //
+    // NOTE: On Linux thread name is limited to 15 symbols which is probably the smallest one among
+    // all platforms. If you provide a name longer than 15 symbols it will be cut. So if you expect
+    // `CurrentThreadName` to return the same name as `name` make sure it's not longer than 15
+    // symbols.
+    static void SetCurrentThreadName(const char* name);
+
+    // NOTE: Will return empty string where CanGetCurrentThreadName() returns false.
+    static TString CurrentThreadName();
+
+    // NOTE: Depends on a platform version.
+    // Will return true for Darwin, Linux or fresh Windows 10.
+    static bool CanGetCurrentThreadName();
+
+private:
+    struct TCallableBase {
+        virtual ~TCallableBase() = default;
+        virtual void run() = 0;
+
+        static void* ThreadWorker(void* arg) {
+            static_cast<TCallableBase*>(arg)->run();
+            return nullptr;
+        }
+    };
+
+    template <typename Callable>
+    struct TCallableParams: public TCallableBase {
+        TCallableParams(Callable&& callable)
+            : Callable_(std::forward<Callable>(callable))
+        {
+        }
+
+        Callable Callable_;
+
+        void run() override {
+            Callable_();
+        }
+    };
+
+    TThread(TPrivateCtor, THolder<TCallableBase> callable);
 
 private:
     class TImpl;
     THolder<TImpl> Impl_;
 };
 
-class TSimpleThread: public TThread {
+class ISimpleThread: public TThread {
 public:
-    TSimpleThread(size_t stackSize = 0);
+    ISimpleThread(size_t stackSize = 0);
 
-    virtual ~TSimpleThread() = default;
+    virtual ~ISimpleThread() = default;
 
     virtual void* ThreadProc() = 0;
 };

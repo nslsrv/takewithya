@@ -204,8 +204,8 @@ namespace std
 	class exception
 	{
 		public:
-			virtual ~exception() throw();
-			virtual const char* what() const throw();
+			virtual ~exception();
+			virtual const char* what() const noexcept;
 	};
 
 }
@@ -259,7 +259,7 @@ namespace std
 {
 	// Forward declaration of standard library terminate() function used to
 	// abort execution.
-    void terminate(void) throw ();
+    void terminate(void) noexcept;
 }
 
 using namespace ABI_NAMESPACE;
@@ -443,17 +443,23 @@ static void init_key(void)
 	pthread_setspecific(eh_key, 0);
 }
 
+static __thread __cxa_thread_info* THR_INFO = nullptr;
+
 /**
  * Returns the thread info structure, creating it if it is not already created.
  */
 static __cxa_thread_info *thread_info()
 {
+    if (THR_INFO) {
+        return THR_INFO;
+    }
 	pthread_once(&once_control, init_key);
 	__cxa_thread_info *info = static_cast<__cxa_thread_info*>(pthread_getspecific(eh_key));
 	if (0 == info) {
 		info = alloc_thread_info();
 		pthread_setspecific(eh_key, info);
 	}
+    THR_INFO = info;
 	return info;
 }
 
@@ -470,6 +476,9 @@ static struct InitMainTls {
  */
 static __cxa_thread_info *thread_info_fast()
 {
+    if (THR_INFO) {
+        return THR_INFO;
+    }
 	return static_cast<__cxa_thread_info*>(pthread_getspecific(eh_key));
 }
 /**
@@ -718,7 +727,7 @@ void __cxa_free_dependent_exception(void *thrown_exception)
  * a handler, prints a back trace before aborting.
  */
 #if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)
-extern "C" void *__cxa_begin_catch(void *e) throw();
+extern "C" void *__cxa_begin_catch(void *e) noexcept;
 #else
 extern "C" void *__cxa_begin_catch(void *e);
 #endif
@@ -767,6 +776,9 @@ static void throw_exception(__cxa_exception *ex)
 	report_failure(err, ex);
 }
 
+typedef void (*cxa_throw_hook_t)(void*, std::type_info*, void(*)(void*)) noexcept;
+
+__attribute__((weak)) cxa_throw_hook_t cxa_throw_hook = nullptr;
 
 /**
  * ABI function for throwing an exception.  Takes the object to be thrown (the
@@ -777,6 +789,11 @@ extern "C" void __cxa_throw(void *thrown_exception,
                             std::type_info *tinfo,
                             void(*dest)(void*))
 {
+	if (cxa_throw_hook)
+	{
+		cxa_throw_hook(thrown_exception, tinfo, dest);
+	}
+
 	__cxa_exception *ex = reinterpret_cast<__cxa_exception*>(thrown_exception) - 1;
 
 	ex->referenceCount = 1;
@@ -1213,7 +1230,7 @@ BEGIN_PERSONALITY_FUNCTION(__gxx_personality_v0)
  * C++ exceptions) of the unadjusted pointer (for foreign exceptions).
  */
 #if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)
-extern "C" void *__cxa_begin_catch(void *e) throw()
+extern "C" void *__cxa_begin_catch(void *e) noexcept
 #else
 extern "C" void *__cxa_begin_catch(void *e)
 #endif
@@ -1405,14 +1422,14 @@ namespace pathscale
 	/**
 	 * Sets whether unexpected and terminate handlers should be thread-local.
 	 */
-	void set_use_thread_local_handlers(bool flag) throw()
+	void set_use_thread_local_handlers(bool flag) noexcept
 	{
 		thread_local_handlers = flag;
 	}
 	/**
 	 * Sets a thread-local unexpected handler.
 	 */
-	unexpected_handler set_unexpected(unexpected_handler f) throw()
+	unexpected_handler set_unexpected(unexpected_handler f) noexcept
 	{
 		static __cxa_thread_info *info = thread_info();
 		unexpected_handler old = info->unexpectedHandler;
@@ -1422,7 +1439,7 @@ namespace pathscale
 	/**
 	 * Sets a thread-local terminate handler.
 	 */
-	terminate_handler set_terminate(terminate_handler f) throw()
+	terminate_handler set_terminate(terminate_handler f) noexcept
 	{
 		static __cxa_thread_info *info = thread_info();
 		terminate_handler old = info->terminateHandler;
@@ -1437,7 +1454,7 @@ namespace std
 	 * Sets the function that will be called when an exception specification is
 	 * violated.
 	 */
-	unexpected_handler set_unexpected(unexpected_handler f) throw()
+	unexpected_handler set_unexpected(unexpected_handler f) noexcept
 	{
 		if (thread_local_handlers) { return pathscale::set_unexpected(f); }
 
@@ -1446,7 +1463,7 @@ namespace std
 	/**
 	 * Sets the function that is called to terminate the program.
 	 */
-	terminate_handler set_terminate(terminate_handler f) throw()
+	terminate_handler set_terminate(terminate_handler f) noexcept
 	{
 		if (thread_local_handlers) { return pathscale::set_terminate(f); }
 
@@ -1456,7 +1473,7 @@ namespace std
 	 * Terminates the program, calling a custom terminate implementation if
 	 * required.
 	 */
-    void terminate(void) throw ()
+    void terminate(void) noexcept
 	{
 		static __cxa_thread_info *info = thread_info();
 		if (0 != info && 0 != info->terminateHandler)
@@ -1489,15 +1506,24 @@ namespace std
 	 * Returns whether there are any exceptions currently being thrown that
 	 * have not been caught.  This can occur inside a nested catch statement.
 	 */
-	bool uncaught_exception() throw()
+	bool uncaught_exception() noexcept
 	{
 		__cxa_thread_info *info = thread_info();
 		return info->globals.uncaughtExceptions != 0;
 	}
 	/**
+	 * Returns the number of exceptions currently being thrown that have not
+	 * been caught.  This can occur inside a nested catch statement.
+	 */
+	int uncaught_exceptions() noexcept
+	{
+		__cxa_thread_info *info = thread_info();
+		return info->globals.uncaughtExceptions;
+	}
+	/**
 	 * Returns the current unexpected handler.
 	 */
-	unexpected_handler get_unexpected() throw()
+	unexpected_handler get_unexpected() noexcept
 	{
 		__cxa_thread_info *info = thread_info();
 		if (info->unexpectedHandler)
@@ -1509,7 +1535,7 @@ namespace std
 	/**
 	 * Returns the current terminate handler.
 	 */
-	terminate_handler get_terminate() throw()
+	terminate_handler get_terminate() noexcept
 	{
 		__cxa_thread_info *info = thread_info();
 		if (info->terminateHandler)

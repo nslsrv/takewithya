@@ -2,8 +2,10 @@
 #include "vector.h"
 #include "noncopyable.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
+#include <util/generic/hash_set.h>
+#include <util/generic/is_in.h>
 #include <util/stream/output.h>
 #include <util/system/thread.h>
 
@@ -19,18 +21,19 @@ class TPointerTest: public TTestBase {
     UNIT_TEST(TestMakeHolder);
     UNIT_TEST(TestTrulePtr);
     UNIT_TEST(TestAutoToHolder);
-    UNIT_TEST(TestLinkedPtr);
     UNIT_TEST(TestCopyPtr);
     UNIT_TEST(TestIntrPtr);
     UNIT_TEST(TestIntrusiveConvertion);
     UNIT_TEST(TestIntrusiveConstConvertion);
+    UNIT_TEST(TestIntrusiveConstConstruction);
     UNIT_TEST(TestMakeIntrusive);
     UNIT_TEST(TestCopyOnWritePtr1);
     UNIT_TEST(TestCopyOnWritePtr2);
     UNIT_TEST(TestOperatorBool);
     UNIT_TEST(TestMakeShared);
-    UNIT_TEST(TestNullptrComparsion);
+    UNIT_TEST(TestComparison);
     UNIT_TEST(TestSimpleIntrusivePtrCtorTsan);
+    UNIT_TEST(TestRefCountedPtrsInHashSet)
     UNIT_TEST_SUITE_END();
 
 private:
@@ -38,7 +41,7 @@ private:
         struct S: public TAtomicRefCount<S> {
         };
 
-        struct TLocalThread: public TSimpleThread {
+        struct TLocalThread: public ISimpleThread {
             virtual void* ThreadProc() override {
                 TSimpleIntrusivePtr<S> ptr;
                 return nullptr;
@@ -70,17 +73,20 @@ private:
     void TestMakeHolder();
     void TestTrulePtr();
     void TestAutoToHolder();
-    void TestLinkedPtr();
     void TestCopyPtr();
     void TestIntrPtr();
     void TestIntrusiveConvertion();
     void TestIntrusiveConstConvertion();
+    void TestIntrusiveConstConstruction();
     void TestMakeIntrusive();
     void TestCopyOnWritePtr1();
     void TestCopyOnWritePtr2();
     void TestOperatorBool();
     void TestMakeShared();
-    void TestNullptrComparsion();
+    void TestComparison();
+    template <class T, class TRefCountedPtr>
+    void TestRefCountedPtrsInHashSetImpl();
+    void TestRefCountedPtrsInHashSet();
 };
 
 UNIT_TEST_SUITE_REGISTRATION(TPointerTest);
@@ -125,19 +131,6 @@ void TPointerTest::TestSimpleIntrPtr() {
         TSimpleIntrusivePtr<A> a1(newA());
         TSimpleIntrusivePtr<A> a2(newA());
         TSimpleIntrusivePtr<A> a3 = a2;
-
-        a1 = a2;
-        a2 = a3;
-    }
-
-    UNIT_ASSERT_VALUES_EQUAL(cnt, 0);
-}
-
-void TPointerTest::TestLinkedPtr() {
-    {
-        TLinkedPtr<A> a1(newA());
-        TLinkedPtr<A> a2(newA());
-        TLinkedPtr<A> a3 = a2;
 
         a1 = a2;
         a2 = a3;
@@ -211,6 +204,10 @@ void TPointerTest::TestMakeHolder() {
     {
         struct TRec {
             int X, Y;
+            TRec(int x, int y)
+                : X(x)
+                , Y(y)
+            {}
         };
         auto ptr = MakeHolder<TRec>(1, 2);
         UNIT_ASSERT_VALUES_EQUAL(ptr->X, 1);
@@ -270,10 +267,10 @@ void TPointerTest::TestAutoToHolder() {
     UNIT_ASSERT_VALUES_EQUAL(cnt, 0);
 
     {
-        class B: public A {
+        class B1: public A {
         };
 
-        TAutoPtr<B> x(new B());
+        TAutoPtr<B1> x(new B1());
         THolder<A> y = x;
     }
 
@@ -342,9 +339,9 @@ void TPointerTest::TestIntrPtr() {
         TIntrusivePtr<TOp> p, p2;
         TOp3 op3;
         {
-            yvector<TIntrusivePtr<TOp>> f1;
+            TVector<TIntrusivePtr<TOp>> f1;
             {
-                yvector<TIntrusivePtr<TOp>> f2;
+                TVector<TIntrusivePtr<TOp>> f2;
                 f2.push_back(new TOp);
                 p = new TOp;
                 f2.push_back(p);
@@ -559,10 +556,10 @@ namespace {
         }
     };
 
-} // namespace
+}
 
 void TPointerTest::TestOperatorBool() {
-    using TVec = yvector<ui32>;
+    using TVec = TVector<ui32>;
 
     // to be sure TImplicitlyCastable works as expected
     UNIT_ASSERT((TImplicitlyCastable<int, bool>::Result));
@@ -703,14 +700,127 @@ void TPointerTest::TestMakeShared() {
     }
 }
 
-void TPointerTest::TestNullptrComparsion() {
+template <class TPtr>
+void TestPtrComparison(const TPtr& ptr) {
+    UNIT_ASSERT(ptr == ptr);
+    UNIT_ASSERT(!(ptr != ptr));
+    UNIT_ASSERT(ptr == ptr.Get());
+    UNIT_ASSERT(!(ptr != ptr.Get()));
+}
+
+void TPointerTest::TestComparison() {
     THolder<A> ptr1(new A);
     TAutoPtr<A> ptr2;
     TSimpleSharedPtr<int> ptr3(new int(6));
     TIntrusivePtr<A> ptr4;
+    TIntrusiveConstPtr<A> ptr5 = ptr4;
 
     UNIT_ASSERT(ptr1 != nullptr);
     UNIT_ASSERT(ptr2 == nullptr);
     UNIT_ASSERT(ptr3 != nullptr);
     UNIT_ASSERT(ptr4 == nullptr);
+    UNIT_ASSERT(ptr5 == nullptr);
+
+    TestPtrComparison(ptr1);
+    TestPtrComparison(ptr2);
+    TestPtrComparison(ptr3);
+    TestPtrComparison(ptr4);
+    TestPtrComparison(ptr5);
+}
+
+template <class T, class TRefCountedPtr>
+void TPointerTest::TestRefCountedPtrsInHashSetImpl() {
+    THashSet<TRefCountedPtr> hashSet;
+    TRefCountedPtr p1(new T());
+    UNIT_ASSERT(!IsIn(hashSet, p1));
+    UNIT_ASSERT(hashSet.insert(p1).second);
+    UNIT_ASSERT(IsIn(hashSet, p1));
+    UNIT_ASSERT_VALUES_EQUAL(hashSet.size(), 1);
+    UNIT_ASSERT(!hashSet.insert(p1).second);
+
+    TRefCountedPtr p2(new T());
+    UNIT_ASSERT(!IsIn(hashSet, p2));
+    UNIT_ASSERT(hashSet.insert(p2).second);
+    UNIT_ASSERT(IsIn(hashSet, p2));
+    UNIT_ASSERT_VALUES_EQUAL(hashSet.size(), 2);
+}
+
+struct TCustomIntrusivePtrOps : TDefaultIntrusivePtrOps<A> {
+};
+
+struct TCustomDeleter : TDelete {
+};
+
+struct TCustomCounter : TSimpleCounter {
+    using TSimpleCounterTemplate::TSimpleCounterTemplate;
+};
+
+void TPointerTest::TestRefCountedPtrsInHashSet() {
+    // test common case
+    TestRefCountedPtrsInHashSetImpl<TString, TSimpleSharedPtr<TString>>();
+    TestRefCountedPtrsInHashSetImpl<TString, TAtomicSharedPtr<TString>>();
+    TestRefCountedPtrsInHashSetImpl<A, TIntrusivePtr<A>>();
+    TestRefCountedPtrsInHashSetImpl<A, TIntrusiveConstPtr<A>>();
+
+    // test with custom ops
+    TestRefCountedPtrsInHashSetImpl<TString, TSharedPtr<TString, TCustomCounter, TCustomDeleter>>();
+    TestRefCountedPtrsInHashSetImpl<A, TIntrusivePtr<A, TCustomIntrusivePtrOps>>();
+    TestRefCountedPtrsInHashSetImpl<A, TIntrusiveConstPtr<A, TCustomIntrusivePtrOps>>();
+}
+
+class TRefCountedWithStatistics: public TNonCopyable {
+public:
+    struct TExternalCounter {
+        TAtomic Counter{0};
+        TAtomic Increments{0};
+    };
+
+    TRefCountedWithStatistics(TExternalCounter& cnt)
+        : ExternalCounter_(cnt)
+    {
+        ExternalCounter_ = {}; // reset counters
+    }
+
+    void Ref() noexcept {
+        AtomicIncrement(ExternalCounter_.Counter);
+        AtomicIncrement(ExternalCounter_.Increments);
+    }
+
+    void UnRef() noexcept {
+        if (AtomicDecrement(ExternalCounter_.Counter) == 0) {
+            TDelete::Destroy(this);
+        }
+    }
+
+    void DecRef() noexcept {
+        Y_VERIFY(AtomicDecrement(ExternalCounter_.Counter) != 0);
+    }
+
+private:
+    TExternalCounter& ExternalCounter_;
+};
+
+void TPointerTest::TestIntrusiveConstConstruction() {
+    {
+        TRefCountedWithStatistics::TExternalCounter cnt;
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 0);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 0);
+        TIntrusivePtr<TRefCountedWithStatistics> i{MakeIntrusive<TRefCountedWithStatistics>(cnt)};
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 1);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 1);
+        i.Reset();
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 0);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 1);
+    }
+    {
+        TRefCountedWithStatistics::TExternalCounter cnt;
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 0);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 0);
+        TIntrusiveConstPtr<TRefCountedWithStatistics> c{MakeIntrusive<TRefCountedWithStatistics>(cnt)};
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 1);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 1);
+        c.Reset();
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Counter), 0);
+        UNIT_ASSERT_VALUES_EQUAL(AtomicGet(cnt.Increments), 1);
+    }
 }

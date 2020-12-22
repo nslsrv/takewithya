@@ -17,12 +17,14 @@ namespace NIsInHelper {
     Y_HAS_SUBTYPE(key_type, KeyType);
 
     template <class T>
-    using TIsAssocCont = std::conditional_t<THasFindMethod<T>::Result && THasConstIterator<T>::Result && THasKeyType<T>::Result, std::true_type, std::false_type>;
+    using TIsAssocCont = TConjunction<THasFindMethod<T>, THasConstIterator<T>, THasKeyType<T>>;
 
     template <class C, class T, bool isAssoc>
     struct TIsInTraits {
         static bool IsIn(const C& c, const T& e) {
-            return ::IsIn(c.begin(), c.end(), e);
+            using std::begin;
+            using std::end;
+            return ::IsIn(begin(c), end(c), e);
         }
     };
 

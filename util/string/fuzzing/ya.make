@@ -1,7 +1,7 @@
 
 
 RECURSE(
-    strtod
     collapse
-    cgi_param
+    escape_c
+    strtod
 )

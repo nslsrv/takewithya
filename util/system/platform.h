@@ -33,6 +33,10 @@
 #endif
 #endif
 
+#if defined(__IOS__)
+#define _ios_
+#endif
+
 #if defined(_linux_)
 #if defined(_musl_)
 //nothing to do
@@ -129,8 +133,36 @@
 #define _ssse3_
 #endif
 
-#if defined(POPCNT_ENABLED)
+#if defined(__SSE4_1__) || defined(SSE41_ENABLED)
+#define _sse4_1_
+#endif
+
+#if defined(__SSE4_2__) || defined(SSE42_ENABLED)
+#define _sse4_2_
+#endif
+
+#if defined(__POPCNT__) || defined(POPCNT_ENABLED)
 #define _popcnt_
+#endif
+
+#if defined(__PCLMUL__) || defined(PCLMUL_ENABLED)
+#define _pclmul_
+#endif
+
+#if defined(__AES__) || defined(AES_ENABLED)
+#define _aes_
+#endif
+
+#if defined(__AVX__) || defined(AVX_ENABLED)
+#define _avx_
+#endif
+
+#if defined(__AVX2__) || defined(AVX2_ENABLED)
+#define _avx2_
+#endif
+
+#if defined(__FMA__) || defined(FMA_ENABLED)
+#define _fma_
 #endif
 
 #if defined(__DLL__) || defined(_DLL)
@@ -169,16 +201,22 @@
 #endif
 
 #define SIZEOF_CHAR 1
+#define SIZEOF_UNSIGNED_CHAR 1
 #define SIZEOF_SHORT 2
+#define SIZEOF_UNSIGNED_SHORT 2
 #define SIZEOF_INT 4
+#define SIZEOF_UNSIGNED_INT 4
 
 #if defined(_32_)
 #define SIZEOF_LONG 4
+#define SIZEOF_UNSIGNED_LONG 4
 #elif defined(_64_)
 #if defined(_win_)
 #define SIZEOF_LONG 4
+#define SIZEOF_UNSIGNED_LONG 4
 #else
 #define SIZEOF_LONG 8
+#define SIZEOF_UNSIGNED_LONG 8
 #endif // _win_
 #endif // _32_
 
@@ -187,15 +225,10 @@
 #endif
 
 #define SIZEOF_LONG_LONG 8
+#define SIZEOF_UNSIGNED_LONG_LONG 8
 
 #undef SIZEOF_SIZE_T // in case we include <Python.h> which defines it, too
 #define SIZEOF_SIZE_T SIZEOF_PTR
-
-#define SIZEOF_UNSIGNED_CHAR SIZEOF_CHAR
-#define SIZEOF_UNSIGNED_INT SIZEOF_INT
-#define SIZEOF_UNSIGNED_LONG SIZEOF_LONG
-#define SIZEOF_UNSIGNED_LONG_LONG SIZEOF_LONG_LONG
-#define SIZEOF_UNSIGNED_SHORT SIZEOF_SHORT
 
 #if defined(__INTEL_COMPILER)
 #pragma warning(disable 1292)

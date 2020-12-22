@@ -4,7 +4,8 @@
 
 #include <util/generic/strbuf.h>
 #include <util/stream/str.h>
-#include <util/string/iterator.h>
+#include <util/string/cast.h>
+#include <util/string/split.h>
 #include <utility>
 
 class TEnumNotFoundException: public yexception {
@@ -97,7 +98,7 @@ inline void SetEnumFlags(const std::pair<const char*, E> (&str2Enum)[N], TString
     } else {
         flags.reset();
         for (const auto& it : StringSplitter(optSpec).Split(',')) {
-            E e = *EnumFromStringImpl(~ToString(it.Token()), str2Enum, N);
+            E e = *EnumFromStringImpl(ToString(it.Token()).data(), str2Enum, N);
             flags.set(e);
         }
     }
@@ -112,7 +113,7 @@ inline void SetEnumFlags(const std::pair<const char*, E>* str2Enum, TStringBuf o
     } else {
         flags.reset();
         for (const auto& it : StringSplitter(optSpec).Split(',')) {
-            E e = *EnumFromStringImpl(~ToString(it.Token()), str2Enum, size);
+            E e = *EnumFromStringImpl(ToString(it.Token()).data(), str2Enum, size);
             flags.set(e);
         }
     }
@@ -127,7 +128,7 @@ inline void SetEnumFlags(TStringBuf optSpec, std::bitset<B>& flags, bool allIfEm
         flags.reset();
         for (const auto& it : StringSplitter(optSpec).Split(',')) {
             E e;
-            if (!FromString(it.Token(), e))
+            if (!TryFromString(it.Token(), e))
                 ythrow yexception() << "Unknown enum value '" << it.Token() << "'";
             flags.set((size_t)e);
         }

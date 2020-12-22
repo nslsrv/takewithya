@@ -4,6 +4,7 @@
 #include "align.h"
 #include "yassert.h"
 
+#include <util/generic/noncopyable.h>
 #include <util/generic/ptr.h>
 #include <util/generic/utility.h>
 #include <util/generic/yexception.h>
@@ -12,6 +13,11 @@
 
 #include <new>
 #include <cstdio>
+
+namespace NPrivate {
+    // NB: use TFileMap::Precharge() and TFileMappedArray::Prechage()
+    void Precharge(const void* data, size_t dataSize, size_t offset, size_t size);
+}
 
 struct TMemoryMapCommon {
     struct TMapResult {
@@ -45,17 +51,19 @@ struct TMemoryMapCommon {
     enum EOpenModeFlag {
         oRdOnly = 1,
         oRdWr = 2,
+        oCopyOnWr = 4,
 
-        oAccessMask = 3,
+        oAccessMask = 7,
         oNotGreedy = 8,
         oPrecharge = 16,
+        oPopulate = 32, // Populate page table entries (see mmap's MAP_POPULATE)
     };
     Y_DECLARE_FLAGS(EOpenMode, EOpenModeFlag)
 
     /**
-      * Name that will be printed in exceptions if not specifed.
-      * Overridden by name obtained from TFile if it's not empty.
-      **/
+     * Name that will be printed in exceptions if not specified.
+     * Overridden by name obtained from `TFile` if it's not empty.
+     */
     static const TString UnknownFileName;
 };
 Y_DECLARE_OPERATORS_FOR_FLAGS(TMemoryMapCommon::EOpenMode)
@@ -81,6 +89,7 @@ public:
     i64 Length() const noexcept;
     bool IsOpen() const noexcept;
     bool IsWritable() const noexcept;
+    EOpenMode GetMode() const noexcept;
     TFile GetFile() const noexcept;
 
     void SetSequential();
@@ -141,6 +150,10 @@ public:
         return Map_.IsWritable();
     }
 
+    EOpenMode GetMode() const noexcept {
+        return Map_.GetMode();
+    }
+
     inline void* Ptr() const noexcept {
         return Region_.MappedData();
     }
@@ -168,64 +181,6 @@ private:
 
     TMemoryMap Map_;
     TMapResult Region_;
-};
-
-/// Deprecated (by pg@), use TFileMap or TMemoryMap instead
-class TMappedFile {
-private:
-    TFileMap* Map_;
-
-private:
-    TMappedFile(TFileMap* map, const char* dbgName);
-
-public:
-    TMappedFile() {
-        Map_ = nullptr;
-    }
-
-    ~TMappedFile() {
-        term();
-    }
-
-    explicit TMappedFile(const TString& name) {
-        Map_ = nullptr;
-        init(name, TFileMap::oRdOnly);
-    }
-
-    TMappedFile(const TFile& file, TFileMap::EOpenMode om = TFileMap::oRdOnly, const char* dbgName = "unknown");
-
-    void init(const TString& name);
-
-    void init(const TString& name, TFileMap::EOpenMode om);
-
-    void init(const TString& name, size_t length, TFileMap::EOpenMode om);
-
-    void init(const TFile&, TFileMap::EOpenMode om = TFileMap::oRdOnly, const char* dbgName = "unknown");
-
-    void flush();
-
-    void term() {
-        if (Map_) {
-            Map_->Unmap();
-            delete Map_;
-            Map_ = nullptr;
-        }
-    }
-
-    size_t getSize() const {
-        return (Map_ ? Map_->MappedSize() : 0);
-    }
-
-    void* getData(size_t pos = 0) const {
-        Y_ASSERT(!Map_ || (pos <= getSize()));
-        return (Map_ ? (void*)((unsigned char*)Map_->Ptr() + pos) : nullptr);
-    }
-
-    void precharge(size_t pos = 0, size_t size = (size_t)-1) const;
-
-    void swap(TMappedFile& file) noexcept {
-        DoSwap(Map_, file.Map_);
-    }
 };
 
 template <class T>
@@ -297,9 +252,12 @@ public:
         return *Dummy_;
     }
     /// for STL compatibility only, Empty() usage is recommended
+    Y_PURE_FUNCTION
     bool empty() const noexcept {
         return Empty();
     }
+
+    Y_PURE_FUNCTION
     bool Empty() const noexcept {
         return 0 == Size_;
     }
@@ -331,11 +289,18 @@ private:
     }
 };
 
-class TMappedAllocation {
+class TMappedAllocation : TMoveOnly {
 public:
     TMappedAllocation(size_t size = 0, bool shared = false, void* addr = nullptr);
     ~TMappedAllocation() {
         Dealloc();
+    }
+    TMappedAllocation(TMappedAllocation&& other) {
+        this->swap(other);
+    }
+    TMappedAllocation& operator=(TMappedAllocation&& other) {
+        this->swap(other);
+        return *this;
     }
     void* Alloc(size_t size, void* addr = nullptr);
     void Dealloc();
@@ -357,13 +322,12 @@ public:
     void swap(TMappedAllocation& with);
 
 private:
-    void* Ptr_;
-    size_t Size_;
-    bool Shared_;
+    void* Ptr_ = nullptr;
+    size_t Size_ = 0;
+    bool Shared_ = false;
 #ifdef _win_
-    void* Mapping_;
+    void* Mapping_ = nullptr;
 #endif
-    Y_DISABLE_COPY(TMappedAllocation);
 };
 
 template <class T>
@@ -416,5 +380,4 @@ public:
     void swap(TMappedArray<T>& with) {
         TMappedAllocation::swap(with);
     }
-    Y_DISABLE_COPY(TMappedArray);
 };

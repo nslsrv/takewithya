@@ -4,19 +4,32 @@ import subprocess
 import tempfile
 import collections
 import optparse
+import pipes
+
+
+def shlex_join(cmd):
+    # equivalent to shlex.join() in python 3
+    return ' '.join(
+        pipes.quote(part)
+        for part in cmd
+    )
 
 
 def parse_export_file(p):
     with open(p, 'r') as f:
-        for l in f.read().split('\n'):
+        for l in f:
             l = l.strip()
 
             if l and '#' not in l:
-                x, y = l.split()
-                if x == 'linux_version':
-                    yield {'linux_version': y}
+                words = l.split()
+                if len(words) == 2 and words[0] == 'linux_version':
+                    yield {'linux_version': words[1]}
+                elif len(words) == 2:
+                    yield {'lang': words[0], 'sym': words[1]}
+                elif len(words) == 1:
+                    yield {'lang': 'C', 'sym': words[0]}
                 else:
-                    yield {'lang': x, 'sym': y}
+                    raise Exception('unsupported exports line: ' + l)
 
 
 def to_c(sym):
@@ -73,7 +86,7 @@ def fix_gnu_param(arch, ex):
         else:
             d[item['lang']].append(item['sym'])
 
-    with tempfile.NamedTemporaryFile(delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='wt', delete=False) as f:
         if version:
             f.write('{} {{\nglobal:\n'.format(version))
         else:
@@ -109,26 +122,121 @@ def fix_windows_param(ex):
         return ['/DEF:{}'.format(def_file.name)]
 
 
-def fix_cmd(arch, c):
+musl_libs = '-lc', '-lcrypt', '-ldl', '-lm', '-lpthread', '-lrt', '-lutil'
+
+
+def fix_cmd(arch, musl, c):
     if arch == 'WINDOWS':
         prefix = '/DEF:'
         f = fix_windows_param
     else:
         prefix = '-Wl,--version-script='
-        if arch == 'DARWIN':
+        if arch in ('DARWIN', 'IOS'):
             f = fix_darwin_param
         else:
             f = lambda x: fix_gnu_param(arch, x)
 
     def do_fix(p):
+        if musl and p in musl_libs:
+            return []
+
         if p.startswith(prefix) and p.endswith('.exports'):
             fname = p[len(prefix):]
 
             return list(f(list(parse_export_file(fname))))
 
+        if p.endswith('.supp.o'):
+            return []
+
         return [p]
 
     return sum((do_fix(x) for x in c), [])
+
+
+def postprocess_whole_archive(opts, args):
+    if not opts.whole_archive:
+        return args
+
+    def match_peer_lib(arg, peers):
+        key = None
+        if arg.endswith('.a'):
+            key = os.path.dirname(arg)
+        return key if key and key in peers else None
+
+
+    def construct_cmd_darwin(opts, args):
+        whole_archive_peers = { x : 0 for x in opts.whole_archive }
+
+        force_load_flag = '-Wl,-force_load'
+        is_force_load = False
+
+        cmd = []
+        for arg in args:
+            if arg == force_load_flag:
+                is_force_load = True
+            else:
+                key = match_peer_lib(arg, whole_archive_peers)
+                if key:
+                    whole_archive_peers[key] += 1
+                    if not is_force_load:
+                        cmd.append(force_load_flag)
+                is_force_load = False
+
+            cmd.append(arg)
+
+        for key, value in whole_archive_peers.items():
+            assert value > 0, '"{}" specified in WHOLE_ARCHIVE() macro is not used on link command'.format(key)
+
+        return cmd
+
+    def construct_cmd_linux(opts, args):
+        whole_archive_peers = { x : 0 for x in opts.whole_archive }
+
+        whole_archive_flag = '-Wl,--whole-archive'
+        no_whole_archive_flag = '-Wl,--no-whole-archive'
+
+        cmd = []
+        is_inside_whole_archive = False
+        is_whole_archive = False
+        # We are trying not to create excessive sequences of consecutive flags
+        # -Wl,--no-whole-archive  -Wl,--whole-archive ('externally' specified
+        # flags -Wl,--[no-]whole-archive are not taken for consideration in this
+        # optimization intentionally)
+        for arg in args:
+            if arg == whole_archive_flag:
+                is_inside_whole_archive = True
+                is_whole_archive = False
+            elif arg == no_whole_archive_flag:
+                is_inside_whole_archive = False
+                is_whole_archive = False
+            else:
+                key = match_peer_lib(arg, whole_archive_peers)
+                if key:
+                    whole_archive_peers[key] += 1
+
+                if not is_inside_whole_archive:
+                    if key:
+                        if not is_whole_archive:
+                            cmd.append(whole_archive_flag)
+                            is_whole_archive = True
+                    elif is_whole_archive:
+                        cmd.append(no_whole_archive_flag)
+                        is_whole_archive = False
+
+            cmd.append(arg)
+
+        if is_whole_archive:
+            cmd.append(no_whole_archive_flag)
+
+        for key, value in whole_archive_peers.items():
+            assert value > 0, '"{}" specified in WHOLE_ARCHIVE() macro is not used on link command'.format(key)
+
+        return cmd
+
+    if opts.arch == 'DARWIN':
+        return construct_cmd_darwin(opts, args)
+
+    return construct_cmd_linux(opts, args)
 
 
 def parse_args():
@@ -138,6 +246,8 @@ def parse_args():
     parser.add_option('--target')
     parser.add_option('--soname')
     parser.add_option('--fix-elf')
+    parser.add_option('--musl', action='store_true')
+    parser.add_option('--whole-archive', action='append')
     return parser.parse_args()
 
 
@@ -147,11 +257,14 @@ if __name__ == '__main__':
     assert opts.arch
     assert opts.target
 
-    cmd = fix_cmd(opts.arch, args)
+    cmd = fix_cmd(opts.arch, opts.musl, args)
+    cmd = postprocess_whole_archive(opts, cmd)
     proc = subprocess.Popen(cmd, shell=False, stderr=sys.stderr, stdout=sys.stdout)
     proc.communicate()
 
     if proc.returncode:
+        print >>sys.stderr, 'linker has failed with retcode:', proc.returncode
+        print >>sys.stderr, 'linker command:', shlex_join(cmd)
         sys.exit(proc.returncode)
 
     if opts.fix_elf:
@@ -160,9 +273,13 @@ if __name__ == '__main__':
         proc.communicate()
 
         if proc.returncode:
+            print >>sys.stderr, 'fix_elf has failed with retcode:', proc.returncode
+            print >>sys.stderr, 'fix_elf command:', shlex_join(cmd)
             sys.exit(proc.returncode)
 
     if opts.soname and opts.soname != opts.target:
+        if os.path.exists(opts.soname):
+            os.unlink(opts.soname)
         os.link(opts.target, opts.soname)
 
 
@@ -182,7 +299,7 @@ C++ geobase5::hardcoded_service
 """
     filename = write_temp_file(export_file_content)
     args = ['-Wl,--version-script={}'.format(filename)]
-    assert fix_cmd('DARWIN', args) == [
+    assert fix_cmd('DARWIN', False, args) == [
         '-Wl,-exported_symbol,__ZN8geobase57details11lookup_impl*',
         '-Wl,-exported_symbol,__ZTIN8geobase57details11lookup_impl*',
         '-Wl,-exported_symbol,__ZTSN8geobase57details11lookup_impl*',

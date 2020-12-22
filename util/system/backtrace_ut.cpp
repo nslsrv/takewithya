@@ -1,6 +1,6 @@
 #include "backtrace.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/stream/output.h>
 
@@ -16,7 +16,7 @@ int Dbg2(void** buf, size_t len) {
     return ret;
 }
 
-void FormatBackTraceReplacement(TOutputStream* out) {
+void FormatBackTraceReplacement(IOutputStream* out) {
     *out << "WorksLikeACharm" << Endl;
 }
 

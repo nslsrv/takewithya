@@ -5,7 +5,7 @@
 *.rej
 *.so
 *.swp
-*_pb2.py
+*.tmp
 .bzr
 .gdb_history
 .hg
@@ -14,11 +14,14 @@
 .om.cache
 .ropeproject
 .svn
-.ycm
+.vscode
 /.gcc-compiler
 /.gxx-compiler
+/.ycm
 /local.cmake
 /local.ymake
 om.conf.local
 test-results
-.vscode
+
+/msvs/Debug/*
+/msvs/Release/*

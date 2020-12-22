@@ -4,44 +4,17 @@
 
 #include <util/memory/tempbuf.h>
 
-class TTempBufOutput: public TOutputStream, public TTempBuf {
+class TTempBufOutput: public IOutputStream, public TTempBuf {
 public:
-    TTempBufOutput() = default;
+    inline TTempBufOutput() = default;
 
     explicit TTempBufOutput(size_t size)
         : TTempBuf(size)
     {
     }
 
-    void DoWrite(const void* data, size_t len) override;
-};
-
-class TTempBufWrapperOutput: public TOutputStream {
-public:
-    TTempBufWrapperOutput(TTempBuf& tempbuf)
-        : TempBuf_(tempbuf)
-    {
-    }
-
-    void DoWrite(const void* data, size_t len) override {
-        TempBuf_.Append(data, len);
-    }
-
-private:
-    TTempBuf& TempBuf_;
-};
-
-class TGrowingTempBufOutput: public TOutputStream, public TTempBuf {
-public:
-    inline TGrowingTempBufOutput() = default;
-
-    explicit TGrowingTempBufOutput(size_t size)
-        : TTempBuf(size)
-    {
-    }
-
-    TGrowingTempBufOutput(TGrowingTempBufOutput&&) noexcept = default;
-    TGrowingTempBufOutput& operator=(TGrowingTempBufOutput&&) noexcept = default;
+    TTempBufOutput(TTempBufOutput&&) noexcept = default;
+    TTempBufOutput& operator=(TTempBufOutput&&) noexcept = default;
 
 protected:
     void DoWrite(const void* data, size_t len) override;

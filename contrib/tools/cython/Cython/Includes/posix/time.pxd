@@ -3,10 +3,7 @@
 from posix.types cimport suseconds_t, time_t, clockid_t, timer_t
 from posix.signal cimport sigevent
 
-cdef extern from "sys/time.h" nogil:
-    enum: CLOCK_PROCESS_CPUTIME_ID
-    enum: CLOCK_THREAD_CPUTIME_ID
-
+cdef extern from "<sys/time.h>" nogil:
     enum: CLOCK_REALTIME
     enum: TIMER_ABSTIME
     enum: CLOCK_MONOTONIC

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "fhandle.h"
+#include <util/generic/fwd.h>
+#include <util/system/fhandle.h>
 
 class TFile;
 class TFsPath;
-class TString;
 
 struct TFileStat {
     ui32 Mode = 0; /* protection */
@@ -13,6 +13,7 @@ struct TFileStat {
 
     ui64 NLinks = 0; /* number of hard links */
     ui64 Size = 0;   /* total size, in bytes */
+    ui64 INode = 0;  /* inode number */
 
     time_t ATime = 0; /* time of last access */
     time_t MTime = 0; /* time of last modification */
@@ -21,11 +22,11 @@ struct TFileStat {
 public:
     TFileStat();
 
-    bool IsNull() const;
+    bool IsNull() const noexcept;
 
-    bool IsFile() const;
-    bool IsDir() const;
-    bool IsSymlink() const;
+    bool IsFile() const noexcept;
+    bool IsDir() const noexcept;
+    bool IsSymlink() const noexcept;
 
     explicit TFileStat(const TFile& f);
     explicit TFileStat(FHANDLE f);
@@ -33,8 +34,8 @@ public:
     TFileStat(const TString& fileName, bool nofollow = false);
     TFileStat(const char* fileName, bool nofollow = false);
 
-    friend bool operator==(const TFileStat& l, const TFileStat& r);
-    friend bool operator!=(const TFileStat& l, const TFileStat& r);
+    friend bool operator==(const TFileStat& l, const TFileStat& r) noexcept;
+    friend bool operator!=(const TFileStat& l, const TFileStat& r) noexcept;
 
 private:
     void MakeFromFileName(const char* fileName, bool nofollow);

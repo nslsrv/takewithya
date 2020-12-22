@@ -1,52 +1,79 @@
 #include "strbuf.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
-    SIMPLE_UNIT_TEST(TestConstructors) {
+#include <string_view>
+
+using namespace std::string_view_literals;
+
+Y_UNIT_TEST_SUITE(TStrBufTest) {
+    Y_UNIT_TEST(TestConstructorsAndOperators) {
         TStringBuf str("qwerty");
 
-        UNIT_ASSERT_EQUAL(*~str, 'q');
-        UNIT_ASSERT_EQUAL(+str, 6);
+        UNIT_ASSERT_EQUAL(*str.data(), 'q');
+        UNIT_ASSERT_EQUAL(str.size(), 6);
 
-        TStringBuf str1(STRINGBUF("qwe\0rty"));
+        TStringBuf str1("qwe\0rty"sv);
         TStringBuf str2(str1.data());
         UNIT_ASSERT_VALUES_UNEQUAL(str1, str2);
-        UNIT_ASSERT_VALUES_EQUAL(+str1, 7);
-        UNIT_ASSERT_VALUES_EQUAL(+str2, 3);
+        UNIT_ASSERT_VALUES_EQUAL(str1.size(), 7);
+        UNIT_ASSERT_VALUES_EQUAL(str2.size(), 3);
+
+        std::string_view helloWorld("Hello, World!");
+        TStringBuf fromStringView(helloWorld);
+        UNIT_ASSERT_EQUAL(fromStringView.data(), helloWorld.data());
+        UNIT_ASSERT_EQUAL(fromStringView.size(), helloWorld.size());
+
+        std::string_view fromStringBuf = fromStringView;
+        UNIT_ASSERT_EQUAL(helloWorld.data(), fromStringBuf.data());
+        UNIT_ASSERT_EQUAL(helloWorld.size(), fromStringBuf.size());
     }
 
-    SIMPLE_UNIT_TEST(TestConstExpr) {
+    Y_UNIT_TEST(TestConstExpr) {
         static constexpr TStringBuf str1("qwe\0rty", 7);
-        static constexpr TStringBuf str2(str1.Data(), str1.size());
-        static constexpr TStringBuf str3 = STRINGBUF("qwe\0rty");
+        static constexpr TStringBuf str2(str1.data(), str1.size());
+        static constexpr TStringBuf str3 = "qwe\0rty"sv;
 
-        UNIT_ASSERT_VALUES_EQUAL(str1.Size(), 7);
+        UNIT_ASSERT_VALUES_EQUAL(str1.size(), 7);
 
         UNIT_ASSERT_VALUES_EQUAL(str1, str2);
         UNIT_ASSERT_VALUES_EQUAL(str2, str3);
         UNIT_ASSERT_VALUES_EQUAL(str1, str3);
+
+        static constexpr std::string_view view1(str1);
+        UNIT_ASSERT_VALUES_EQUAL(str1, view1);
+        static_assert(str1.data() == view1.data());
+        static_assert(str1.size() == view1.size());
+
+        static constexpr TStringBuf str4(view1);
+        UNIT_ASSERT_VALUES_EQUAL(str1, str4);
+        static_assert(str1.data() == str4.data());
+        static_assert(str1.size() == str4.size());
     }
 
-    SIMPLE_UNIT_TEST(TestAfter) {
+    Y_UNIT_TEST(TestAfter) {
         TStringBuf str("qwerty");
 
-        UNIT_ASSERT_EQUAL(str.After('w'), STRINGBUF("erty"));
-        UNIT_ASSERT_EQUAL(str.After('x'), STRINGBUF("qwerty"));
-        UNIT_ASSERT_EQUAL(str.After('y'), TStringBuf());
+        UNIT_ASSERT_VALUES_EQUAL(str.After('w'), TStringBuf("erty"));
+        UNIT_ASSERT_VALUES_EQUAL(str.After('x'), TStringBuf("qwerty"));
+        UNIT_ASSERT_VALUES_EQUAL(str.After('y'), TStringBuf());
         UNIT_ASSERT_STRINGS_EQUAL(str.After('='), str);
+
+        // Also works properly on empty strings
+        TStringBuf empty;
+        UNIT_ASSERT_STRINGS_EQUAL(empty.After('x'), empty);
     }
 
-    SIMPLE_UNIT_TEST(TestBefore) {
+    Y_UNIT_TEST(TestBefore) {
         TStringBuf str("qwerty");
 
-        UNIT_ASSERT_EQUAL(str.Before('w'), STRINGBUF("q"));
-        UNIT_ASSERT_EQUAL(str.Before('x'), STRINGBUF("qwerty"));
-        UNIT_ASSERT_EQUAL(str.Before('y'), STRINGBUF("qwert"));
-        UNIT_ASSERT_EQUAL(str.Before('q'), TStringBuf());
+        UNIT_ASSERT_VALUES_EQUAL(str.Before('w'), TStringBuf("q"));
+        UNIT_ASSERT_VALUES_EQUAL(str.Before('x'), TStringBuf("qwerty"));
+        UNIT_ASSERT_VALUES_EQUAL(str.Before('y'), TStringBuf("qwert"));
+        UNIT_ASSERT_VALUES_EQUAL(str.Before('q'), TStringBuf());
     }
 
-    SIMPLE_UNIT_TEST(TestRAfterBefore) {
+    Y_UNIT_TEST(TestRAfterBefore) {
         TStringBuf str("a/b/c");
         UNIT_ASSERT_STRINGS_EQUAL(str.RAfter('/'), "c");
         UNIT_ASSERT_STRINGS_EQUAL(str.RAfter('_'), str);
@@ -56,7 +83,7 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT_STRINGS_EQUAL(str.RBefore('a'), "");
     }
 
-    SIMPLE_UNIT_TEST(TestAfterPrefix) {
+    Y_UNIT_TEST(TestAfterPrefix) {
         TStringBuf str("cat_dog");
 
         TStringBuf r = "the_same";
@@ -83,7 +110,7 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT(!a.SkipPrefix("def") && a == "");
     }
 
-    SIMPLE_UNIT_TEST(TestBeforeSuffix) {
+    Y_UNIT_TEST(TestBeforeSuffix) {
         TStringBuf str("cat_dog");
 
         TStringBuf r = "the_same";
@@ -110,49 +137,48 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT(!a.ChopSuffix("abc") && a == "");
     }
 
-    SIMPLE_UNIT_TEST(TestEmpty) {
-        UNIT_ASSERT(TStringBuf().Empty());
-        UNIT_ASSERT(!STRINGBUF("q").Empty());
+    Y_UNIT_TEST(TestEmpty) {
+        UNIT_ASSERT(TStringBuf().empty());
+        UNIT_ASSERT(!TStringBuf("q").empty());
     }
 
-    SIMPLE_UNIT_TEST(TestShift) {
+    Y_UNIT_TEST(TestShift) {
         TStringBuf qw("qwerty");
         TStringBuf str;
 
         str = qw;
         str.Chop(10);
-        UNIT_ASSERT(str.Empty());
+        UNIT_ASSERT(str.empty());
 
         str = qw;
-        UNIT_ASSERT_EQUAL(str.SubStr(1), str + 1);
-        UNIT_ASSERT_EQUAL(str + 2, STRINGBUF("erty"));
-        UNIT_ASSERT_EQUAL(str += 3, qw.SubStr(3));
+        UNIT_ASSERT_EQUAL(str.SubStr(2), TStringBuf("erty"));
+        UNIT_ASSERT_EQUAL(str.Skip(3), qw.SubStr(3));
         str.Chop(1);
-        UNIT_ASSERT_EQUAL(str, STRINGBUF("rt"));
+        UNIT_ASSERT_EQUAL(str, TStringBuf("rt"));
     }
 
-    SIMPLE_UNIT_TEST(TestSplit) {
+    Y_UNIT_TEST(TestSplit) {
         TStringBuf qw("qwerty");
         TStringBuf lt, rt;
 
         rt = qw;
         lt = rt.NextTok('r');
-        UNIT_ASSERT_EQUAL(lt, STRINGBUF("qwe"));
-        UNIT_ASSERT_EQUAL(rt, STRINGBUF("ty"));
+        UNIT_ASSERT_EQUAL(lt, TStringBuf("qwe"));
+        UNIT_ASSERT_EQUAL(rt, TStringBuf("ty"));
 
         lt = qw;
         rt = lt.SplitOff('r');
-        UNIT_ASSERT_EQUAL(lt, STRINGBUF("qwe"));
-        UNIT_ASSERT_EQUAL(rt, STRINGBUF("ty"));
+        UNIT_ASSERT_EQUAL(lt, TStringBuf("qwe"));
+        UNIT_ASSERT_EQUAL(rt, TStringBuf("ty"));
 
         rt = qw;
         lt = rt.NextTok('r');
         TStringBuf ty = rt.NextTok('r'); // no 'r' in "ty"
-        UNIT_ASSERT_EQUAL(rt.Size(), 0);
-        UNIT_ASSERT_EQUAL(ty, STRINGBUF("ty"));
+        UNIT_ASSERT_EQUAL(rt.size(), 0);
+        UNIT_ASSERT_EQUAL(ty, TStringBuf("ty"));
     }
 
-    SIMPLE_UNIT_TEST(TestNextTok) {
+    Y_UNIT_TEST(TestNextTok) {
         TStringBuf buf("12q45q");
         TStringBuf tok;
 
@@ -161,33 +187,45 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT(!buf.NextTok('q', tok));
     }
 
-    SIMPLE_UNIT_TEST(TestNextStringTok) {
+    Y_UNIT_TEST(TestNextStringTok) {
         TStringBuf buf1("a@@b@@c");
-        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), STRINGBUF("a"));
-        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), STRINGBUF("b"));
-        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), STRINGBUF("c"));
+        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), TStringBuf("a"));
+        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), TStringBuf("b"));
+        UNIT_ASSERT_EQUAL(buf1.NextTok("@@"), TStringBuf("c"));
         UNIT_ASSERT_EQUAL(buf1, TStringBuf());
 
         TStringBuf buf2("a@@b@@c");
-        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), STRINGBUF("c"));
-        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), STRINGBUF("b"));
-        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), STRINGBUF("a"));
+        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), TStringBuf("c"));
+        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), TStringBuf("b"));
+        UNIT_ASSERT_EQUAL(buf2.RNextTok("@@"), TStringBuf("a"));
         UNIT_ASSERT_EQUAL(buf2, TStringBuf());
+
+        TStringBuf buf3("a@@b@@c");
+        UNIT_ASSERT_EQUAL(buf3.RNextTok("@@@"), TStringBuf("a@@b@@c"));
+        UNIT_ASSERT_EQUAL(buf3, TStringBuf());
     }
 
-    SIMPLE_UNIT_TEST(TestReadLine) {
+    Y_UNIT_TEST(TestReadLine) {
         TStringBuf buf("12\n45\r\n\r\n23");
         TStringBuf tok;
 
-        UNIT_ASSERT(buf.ReadLine(tok) && tok == "12");
-        UNIT_ASSERT(buf.ReadLine(tok) && tok == "45");
-        UNIT_ASSERT(buf.ReadLine(tok) && tok == "");
-        UNIT_ASSERT(buf.ReadLine(tok) && tok == "23");
+        buf.ReadLine(tok);
+        UNIT_ASSERT_VALUES_EQUAL(tok, "12");
+
+        buf.ReadLine(tok);
+        UNIT_ASSERT_VALUES_EQUAL(tok, "45");
+
+        buf.ReadLine(tok);
+        UNIT_ASSERT_VALUES_EQUAL(tok, "");
+
+        buf.ReadLine(tok);
+        UNIT_ASSERT_VALUES_EQUAL(tok, "23");
+
         UNIT_ASSERT(!buf.ReadLine(tok));
     }
 
-    SIMPLE_UNIT_TEST(TestRFind) {
-        TStringBuf buf1 = STRINGBUF("123123456");
+    Y_UNIT_TEST(TestRFind) {
+        TStringBuf buf1 = "123123456";
         UNIT_ASSERT_EQUAL(buf1.rfind('3'), 5);
         UNIT_ASSERT_EQUAL(buf1.rfind('4'), 6);
         UNIT_ASSERT_EQUAL(buf1.rfind('7'), TStringBuf::npos);
@@ -204,13 +242,13 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT_EQUAL(buf4.rfind('3'), 2);
     }
 
-    SIMPLE_UNIT_TEST(TestRNextTok) {
+    Y_UNIT_TEST(TestRNextTok) {
         TStringBuf buf1("a.b.c");
-        UNIT_ASSERT_EQUAL(buf1.RNextTok('.'), STRINGBUF("c"));
-        UNIT_ASSERT_EQUAL(buf1, STRINGBUF("a.b"));
+        UNIT_ASSERT_EQUAL(buf1.RNextTok('.'), TStringBuf("c"));
+        UNIT_ASSERT_EQUAL(buf1, TStringBuf("a.b"));
 
         TStringBuf buf2("a");
-        UNIT_ASSERT_EQUAL(buf2.RNextTok('.'), STRINGBUF("a"));
+        UNIT_ASSERT_EQUAL(buf2.RNextTok('.'), TStringBuf("a"));
         UNIT_ASSERT_EQUAL(buf2, TStringBuf());
 
         TStringBuf buf3("ab cd ef"), tok;
@@ -220,17 +258,17 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         UNIT_ASSERT(!buf3.RNextTok(' ', tok) && tok == "ab" && buf3 == ""); // not modified
     }
 
-    SIMPLE_UNIT_TEST(TestRSplitOff) {
+    Y_UNIT_TEST(TestRSplitOff) {
         TStringBuf buf1("a.b.c");
-        UNIT_ASSERT_EQUAL(buf1.RSplitOff('.'), STRINGBUF("a.b"));
-        UNIT_ASSERT_EQUAL(buf1, STRINGBUF("c"));
+        UNIT_ASSERT_EQUAL(buf1.RSplitOff('.'), TStringBuf("a.b"));
+        UNIT_ASSERT_EQUAL(buf1, TStringBuf("c"));
 
         TStringBuf buf2("a");
         UNIT_ASSERT_EQUAL(buf2.RSplitOff('.'), TStringBuf());
-        UNIT_ASSERT_EQUAL(buf2, STRINGBUF("a"));
+        UNIT_ASSERT_EQUAL(buf2, TStringBuf("a"));
     }
 
-    SIMPLE_UNIT_TEST(TestCBeginCEnd) {
+    Y_UNIT_TEST(TestCBeginCEnd) {
         const char helloThere[] = "Hello there";
         TStringBuf s{helloThere};
 
@@ -240,7 +278,7 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestSplitOnAt) {
+    Y_UNIT_TEST(TestSplitOnAt) {
         TStringBuf s = "abcabc";
         TStringBuf l, r;
 
@@ -287,13 +325,37 @@ SIMPLE_UNIT_TEST_SUITE(TStrBufTest) {
     template <class T>
     void PassByConstReference(const T& val) {
         // In https://st.yandex-team.ru/IGNIETFERRO-294 was assumed that `const char[]` types are compile time strings
-        // and that CharTraits::Length mmay not be called for them. Unfortunately that is not true, `char[]` types
+        // and that CharTraits::Length may not be called for them. Unfortunately that is not true, `char[]` types
         // are easily converted to `const char[]` if they are passed to a function accepting `const T&`.
         UNIT_ASSERT(TStringBuf(val).size() == 5);
     }
 
-    SIMPLE_UNIT_TEST(TestPassingArraysByConstReference) {
+    Y_UNIT_TEST(TestPassingArraysByConstReference) {
         char data[] = "Hello\0word";
         PassByConstReference(data);
+    }
+}
+
+Y_UNIT_TEST_SUITE(TWtrBufTest) {
+    Y_UNIT_TEST(TestConstExpr) {
+        static constexpr TWtringBuf str1(u"qwe\0rty", 7);
+        static constexpr TWtringBuf str2(str1.data(), str1.size());
+        static constexpr TWtringBuf str3 = u"qwe\0rty"sv;
+
+        UNIT_ASSERT_VALUES_EQUAL(str1.size(), 7);
+
+        UNIT_ASSERT_VALUES_EQUAL(str1, str2);
+        UNIT_ASSERT_VALUES_EQUAL(str2, str3);
+        UNIT_ASSERT_VALUES_EQUAL(str1, str3);
+
+        static constexpr std::u16string_view view1(str1);
+        UNIT_ASSERT_VALUES_EQUAL(str1, view1);
+        static_assert(str1.data() == view1.data());
+        static_assert(str1.size() == view1.size());
+
+        static constexpr TWtringBuf str4(view1);
+        UNIT_ASSERT_VALUES_EQUAL(str1, str4);
+        static_assert(str1.data() == str4.data());
+        static_assert(str1.size() == str4.size());
     }
 }

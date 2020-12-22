@@ -24,13 +24,13 @@ from . import UtilNodes
 
 
 class StringParseContext(Main.Context):
-    def __init__(self, name, include_directories=None, compiler_directives=None):
+    def __init__(self, name, include_directories=None, compiler_directives=None, cpp=False):
         if include_directories is None:
             include_directories = []
         if compiler_directives is None:
             compiler_directives = {}
-        Main.Context.__init__(self, include_directories, compiler_directives,
-                              create_testscope=False)
+        # TODO: see if "language_level=3" also works for our internal code here.
+        Main.Context.__init__(self, include_directories, compiler_directives, cpp=cpp, language_level=2)
         self.module_name = name
 
     def find_module(self, module_name, relative_to=None, pos=None, need_pxd=1, absolute_fallback=True):
@@ -39,7 +39,7 @@ class StringParseContext(Main.Context):
         return ModuleScope(module_name, parent_module=None, context=self)
 
 
-def parse_from_strings(name, code, pxds={}, level=None, initial_pos=None,
+def parse_from_strings(name, code, pxds=None, level=None, initial_pos=None,
                        context=None, allow_struct_enum_decorator=False):
     """
     Utility method to parse a (unicode) string of code. This is mostly
@@ -86,6 +86,7 @@ def parse_from_strings(name, code, pxds={}, level=None, initial_pos=None,
     tree.scope = scope
     return tree
 
+
 class TreeCopier(VisitorTransform):
     def visit_Node(self, node):
         if node is None:
@@ -94,6 +95,7 @@ class TreeCopier(VisitorTransform):
             c = node.clone_node()
             self.visitchildren(c)
             return c
+
 
 class ApplyPositionAndCopy(TreeCopier):
     def __init__(self, pos):
@@ -104,6 +106,7 @@ class ApplyPositionAndCopy(TreeCopier):
         copy = super(ApplyPositionAndCopy, self).visit_Node(node)
         copy.pos = self.pos
         return copy
+
 
 class TemplateTransform(VisitorTransform):
     """
@@ -206,15 +209,23 @@ def strip_common_indent(lines):
     """Strips empty lines and common indentation from the list of strings given in lines"""
     # TODO: Facilitate textwrap.indent instead
     lines = [x for x in lines if x.strip() != u""]
-    minindent = min([len(_match_indent(x).group(0)) for x in lines])
-    lines = [x[minindent:] for x in lines]
+    if lines:
+        minindent = min([len(_match_indent(x).group(0)) for x in lines])
+        lines = [x[minindent:] for x in lines]
     return lines
 
 
 class TreeFragment(object):
-    def __init__(self, code, name=None, pxds={}, temps=[], pipeline=[], level=None, initial_pos=None):
+    def __init__(self, code, name=None, pxds=None, temps=None, pipeline=None, level=None, initial_pos=None):
+        if pxds is None:
+            pxds = {}
+        if temps is None:
+            temps = []
+        if pipeline is None:
+            pipeline = []
         if not name:
             name = "(tree fragment)"
+
         if isinstance(code, _unicode):
             def fmt(x): return u"\n".join(strip_common_indent(x.split(u"\n")))
 
@@ -233,7 +244,8 @@ class TreeFragment(object):
                 t = transform(t)
             self.root = t
         elif isinstance(code, Node):
-            if pxds != {}: raise NotImplementedError()
+            if pxds:
+                raise NotImplementedError()
             self.root = code
         else:
             raise ValueError("Unrecognized code format (accepts unicode and Node)")
@@ -242,10 +254,15 @@ class TreeFragment(object):
     def copy(self):
         return copy_code_tree(self.root)
 
-    def substitute(self, nodes={}, temps=[], pos = None):
+    def substitute(self, nodes=None, temps=None, pos = None):
+        if nodes is None:
+            nodes = {}
+        if temps is None:
+            temps = []
         return TemplateTransform()(self.root,
                                    substitutions = nodes,
                                    temps = self.temps + temps, pos = pos)
+
 
 class SetPosTransform(VisitorTransform):
     def __init__(self, pos):

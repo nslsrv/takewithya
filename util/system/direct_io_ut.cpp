@@ -1,16 +1,19 @@
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
+#include <util/generic/yexception.h>
 #include <util/system/fs.h>
 #include <util/random/random.h>
+
 #include "direct_io.h"
 
-SIMPLE_UNIT_TEST_SUITE(TDirectIoTestSuite) {
-    static const char* FileName_("./test.file");
+static const char* FileName_("./test.file");
 
-    SIMPLE_UNIT_TEST(TestDirectFile) {
+Y_UNIT_TEST_SUITE(TDirectIoTestSuite) {
+
+    Y_UNIT_TEST(TestDirectFile) {
         TDirectIOBufferedFile file(FileName_, RdWr | Direct | Seq | CreateAlways, 1 << 15);
-        yvector<ui64> data((1 << 15) + 1);
-        yvector<ui64> readed(data.size());
+        TVector<ui64> data((1 << 15) + 1);
+        TVector<ui64> readed(data.size());
         for (auto& i : data)
             i = RandomNumber<ui64>();
         for (size_t writePos = 0; writePos < data.size();) {
@@ -46,4 +49,32 @@ SIMPLE_UNIT_TEST_SUITE(TDirectIoTestSuite) {
         }
         NFs::Remove(FileName_);
     }
+
+}
+
+Y_UNIT_TEST_SUITE(TDirectIoErrorHandling) {
+    Y_UNIT_TEST(Constructor) {
+        // A non-existent file should not be opened for reading
+        UNIT_ASSERT_EXCEPTION(TDirectIOBufferedFile (FileName_, RdOnly, 1 << 15), TFileError);
+    }
+
+    Y_UNIT_TEST(WritingReadOnlyFileBufferFlushed) {
+        // Note the absence of Direct
+        TDirectIOBufferedFile file(FileName_, RdOnly | OpenAlways, 1);
+        TString buffer = "Hello";
+        UNIT_ASSERT_EXCEPTION(file.Write(buffer.data(), buffer.size()), TFileError);
+        NFs::Remove(FileName_);
+    }
+
+    Y_UNIT_TEST(WritingReadOnlyFileAllInBuffer) {
+        TDirectIOBufferedFile file(FileName_, RdOnly | Direct | Seq | OpenAlways, 1 << 15);
+        TString buffer = "Hello";
+
+        // Doesn't throw because of buffering.
+        file.Write(buffer.data(), buffer.size());
+
+        UNIT_ASSERT_EXCEPTION(file.Finish(), TFileError);
+        NFs::Remove(FileName_);
+    }
+
 }

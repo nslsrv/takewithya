@@ -5,7 +5,7 @@ tmpl = """
 
 #include <kernel/matrixnet/mn_sse.h>
 
-#include <library/archive/yarchive.h>
+#include <library/cpp/archive/yarchive.h>
 
 #include <util/memory/blob.h>
 #include <util/generic/hash.h>
@@ -28,14 +28,14 @@ namespace {
         }
     };
 
-    struct TFormulas: public yhash<size_t, TAutoPtr<TFml>> {
+    struct TFormulas: public THashMap<size_t, TAutoPtr<TFml>> {
         inline TFormulas() {
             TBlob b = TBlob::NoCopy(MxFormulas, MxFormulasSize);
             TArchiveReader ar(b);
             %s
         }
 
-        inline const TMnSseInfo& at(size_t n) const throw () {
+        inline const TMnSseInfo& at(size_t n) const noexcept {
             return *find(n)->second;
         }
     };

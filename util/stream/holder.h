@@ -5,21 +5,21 @@
 #include <utility>
 #include <type_traits>
 
-class TInputStream;
-class TOutputStream;
+class IInputStream;
+class IOutputStream;
 
 namespace NPrivate {
-    template <class Stream, bool isInput = std::is_base_of<TInputStream, Stream>::value>
+    template <class Stream, bool isInput = std::is_base_of<IInputStream, Stream>::value>
     struct TStreamBase {
-        using TType = TInputStream;
+        using TType = IInputStream;
     };
 
     template <class Stream>
     struct TStreamBase<Stream, false> {
-        using TType = TOutputStream;
+        using TType = IOutputStream;
     };
 
-} // namespace NPrivate
+}
 
 /**
  * An ownership-gaining wrapper for proxy streams.
@@ -36,8 +36,8 @@ template <class Base, class StreamBase = typename ::NPrivate::TStreamBase<Base>:
 class THoldingStream: private THolder<StreamBase>, public Base {
 public:
     template <class... Args>
-    inline THoldingStream(StreamBase* stream, Args&&... args)
-        : THolder<StreamBase>(stream)
+    inline THoldingStream(THolder<StreamBase> stream, Args&&... args)
+        : THolder<StreamBase>(std::move(stream))
         , Base(this->Get(), std::forward<Args>(args)...)
     {
     }

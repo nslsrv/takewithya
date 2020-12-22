@@ -44,7 +44,7 @@ namespace {
     }
 
     struct TChunkedZeroCopyInput {
-        inline TChunkedZeroCopyInput(TZeroCopyInput* in)
+        inline TChunkedZeroCopyInput(IZeroCopyInput* in)
             : In(in)
             , Buf(nullptr)
             , Len(0)
@@ -71,7 +71,7 @@ namespace {
             return true;
         }
 
-        TZeroCopyInput* In;
+        IZeroCopyInput* In;
         const char* Buf;
         size_t Len;
     };
@@ -79,11 +79,16 @@ namespace {
 
 class TZLibDecompress::TImpl: private TZLibCommon, public TChunkedZeroCopyInput {
 public:
-    inline TImpl(TZeroCopyInput* in, ZLib::StreamType type)
+    inline TImpl(IZeroCopyInput* in, ZLib::StreamType type, TStringBuf dict)
         : TChunkedZeroCopyInput(in)
+        , Dict(dict)
     {
         if (inflateInit2(Z(), opts[type]) != Z_OK) {
             ythrow TZLibDecompressorError() << "can not init inflate engine";
+        }
+
+        if (dict.size() && type == ZLib::Raw) {
+            SetDict();
         }
     }
 
@@ -107,6 +112,11 @@ public:
             }
 
             switch (inflate(Z(), Z_SYNC_FLUSH)) {
+                case Z_NEED_DICT: {
+                    SetDict();
+                    continue;
+                }
+
                 case Z_STREAM_END: {
                     if (AllowMultipleStreams_) {
                         if (inflateReset(Z()) != Z_OK) {
@@ -138,14 +148,21 @@ private:
         return Next(&Z()->next_in, &Z()->avail_in);
     }
 
+    void SetDict() {
+        if (inflateSetDictionary(Z(), (const Bytef*)Dict.data(), Dict.size()) != Z_OK) {
+            ythrow TZLibCompressorError() << "can not set inflate dictionary";
+        }
+    }
+
     bool AllowMultipleStreams_ = true;
+    TStringBuf Dict;
 };
 
 namespace {
-    class TDecompressStream: public TZeroCopyInput, public TZLibDecompress::TImpl, public TAdditionalStorage<TDecompressStream> {
+    class TDecompressStream: public IZeroCopyInput, public TZLibDecompress::TImpl, public TAdditionalStorage<TDecompressStream> {
     public:
-        inline TDecompressStream(TInputStream* input, ZLib::StreamType type)
-            : TZLibDecompress::TImpl(this, type)
+        inline TDecompressStream(IInputStream* input, ZLib::StreamType type, TStringBuf dict)
+            : TZLibDecompress::TImpl(this, type, dict)
             , Stream_(input)
         {
         }
@@ -161,17 +178,20 @@ namespace {
         }
 
     private:
-        TInputStream* Stream_;
+        IInputStream* Stream_;
     };
 
     using TZeroCopyDecompress = TZLibDecompress::TImpl;
 }
 
 class TZLibCompress::TImpl: public TAdditionalStorage<TImpl>, private TZLibCommon {
-    template <class T>
-    static inline T Type(T type) {
+    static inline ZLib::StreamType Type(ZLib::StreamType type) {
         if (type == ZLib::Auto) {
             return ZLib::ZLib;
+        }
+
+        if (type >= ZLib::Invalid) {
+            ythrow TZLibError() << "invalid compression type: " << static_cast<unsigned long>(type);
         }
 
         return type;
@@ -185,8 +205,15 @@ public:
             ythrow TZLibCompressorError() << "can not init inflate engine";
         }
 
-        if (+p.Dict) {
-            if (deflateSetDictionary(Z(), (const Bytef*)~p.Dict, +p.Dict)) {
+        // Create exactly the same files on all platforms by fixing OS field in the header.
+        if (p.Type == ZLib::GZip) {
+            GZHeader_ = MakeHolder<gz_header>();
+            GZHeader_->os = 3; // UNIX
+            deflateSetHeader(Z(), GZHeader_.Get());
+        }
+
+        if (p.Dict.size()) {
+            if (deflateSetDictionary(Z(), (const Bytef*)p.Dict.data(), p.Dict.size())) {
                 ythrow TZLibCompressorError() << "can not set deflate dictionary";
             }
         }
@@ -203,6 +230,10 @@ public:
         const Bytef* b = (const Bytef*)buf;
         const Bytef* e = b + size;
 
+        Y_DEFER {
+            Z()->next_in = nullptr;
+            Z()->avail_in = 0;
+        };
         do {
             b = WritePart(b, e);
         } while (b < e);
@@ -233,6 +264,20 @@ public:
     }
 
     inline void Flush() {
+        int ret = deflate(Z(), Z_SYNC_FLUSH);
+
+        while ((ret == Z_OK || ret == Z_BUF_ERROR) && !Z()->avail_out) {
+            FlushBuffer();
+            ret = deflate(Z(), Z_SYNC_FLUSH);
+        }
+
+        if (ret != Z_OK && ret != Z_BUF_ERROR) {
+            ythrow TZLibCompressorError() << "deflate flush error(" << GetErrMsg() << ")";
+        }
+
+        if (Z()->avail_out < TmpBufLen()) {
+            FlushBuffer();
+        }
     }
 
     inline void FlushBuffer() {
@@ -252,7 +297,7 @@ public:
         if (ret == Z_STREAM_END) {
             Stream_->Write(TmpBuf(), TmpBufLen() - Z()->avail_out);
         } else {
-            ythrow TZLibCompressorError() << "deflate error(" << GetErrMsg() << ")";
+            ythrow TZLibCompressorError() << "deflate finish error(" << GetErrMsg() << ")";
         }
     }
 
@@ -266,16 +311,17 @@ private:
     }
 
 private:
-    TOutputStream* Stream_;
+    IOutputStream* Stream_;
+    THolder<gz_header> GZHeader_;
 };
 
-TZLibDecompress::TZLibDecompress(TZeroCopyInput* input, ZLib::StreamType type)
-    : Impl_(new TZeroCopyDecompress(input, type))
+TZLibDecompress::TZLibDecompress(IZeroCopyInput* input, ZLib::StreamType type, TStringBuf dict)
+    : Impl_(new TZeroCopyDecompress(input, type, dict))
 {
 }
 
-TZLibDecompress::TZLibDecompress(TInputStream* input, ZLib::StreamType type, size_t buflen)
-    : Impl_(new (buflen) TDecompressStream(input, type))
+TZLibDecompress::TZLibDecompress(IInputStream* input, ZLib::StreamType type, size_t buflen, TStringBuf dict)
+    : Impl_(new (buflen) TDecompressStream(input, type, dict))
 {
 }
 
@@ -290,6 +336,7 @@ size_t TZLibDecompress::DoRead(void* buf, size_t size) {
 }
 
 void TZLibCompress::Init(const TParams& params) {
+    Y_ENSURE(params.BufLen >= 16, "ZLib buffer too small");
     Impl_.Reset(new (params.BufLen) TImpl(params));
 }
 
@@ -301,6 +348,7 @@ TZLibCompress::~TZLibCompress() {
     try {
         Finish();
     } catch (...) {
+        // ¯\_(ツ)_/¯
     }
 }
 

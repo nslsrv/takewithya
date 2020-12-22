@@ -1,17 +1,18 @@
 
 #include <util/system/atomic.h>
 #include <util/system/event.h>
-#include <library/threading/future/legacy_future.h>
+#include <util/generic/deque.h>
+#include <library/cpp/threading/future/legacy_future.h>
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include "lfstack.h"
 
-SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
+Y_UNIT_TEST_SUITE(TLockFreeStackTests) {
     class TCountDownLatch {
     private:
         TAtomic Current;
-        Event EventObject;
+        TSystemEvent EventObject;
 
     public:
         TCountDownLatch(unsigned initial)
@@ -67,7 +68,7 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
             StartLatch.CountDown();
             StartLatch.Await();
 
-            yvector<int> temp;
+            TVector<int> temp;
             while (AtomicGet(LeftToDequeue) > 0) {
                 size_t dequeued = 0;
                 for (size_t i = 0; i < 100; ++i) {
@@ -84,7 +85,7 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
         }
 
         void Run() {
-            yvector<TSimpleSharedPtr<NThreading::TLegacyFuture<>>> futures;
+            TVector<TSimpleSharedPtr<NThreading::TLegacyFuture<>>> futures;
 
             for (size_t i = 0; i < EnqueueThreads; ++i) {
                 futures.push_back(new NThreading::TLegacyFuture<>(std::bind(&TDequeueAllTester<SingleConsumer>::Enqueuer, this)));
@@ -99,37 +100,37 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
 
             UNIT_ASSERT_VALUES_EQUAL(0, int(AtomicGet(LeftToDequeue)));
 
-            yvector<int> left;
+            TVector<int> left;
             Stack.DequeueAll(&left);
             UNIT_ASSERT(left.empty());
         }
     };
 
-    SIMPLE_UNIT_TEST(TestDequeueAll) {
+    Y_UNIT_TEST(TestDequeueAll) {
         TDequeueAllTester<false>().Run();
     }
 
-    SIMPLE_UNIT_TEST(TestDequeueAllSingleConsumer) {
+    Y_UNIT_TEST(TestDequeueAllSingleConsumer) {
         TDequeueAllTester<true>().Run();
     }
 
-    SIMPLE_UNIT_TEST(TestDequeueAllEmptyStack) {
+    Y_UNIT_TEST(TestDequeueAllEmptyStack) {
         TLockFreeStack<int> stack;
 
-        yvector<int> r;
+        TVector<int> r;
         stack.DequeueAll(&r);
 
         UNIT_ASSERT(r.empty());
     }
 
-    SIMPLE_UNIT_TEST(TestDequeueAllReturnsInReverseOrder) {
+    Y_UNIT_TEST(TestDequeueAllReturnsInReverseOrder) {
         TLockFreeStack<int> stack;
 
         stack.Enqueue(17);
         stack.Enqueue(19);
         stack.Enqueue(23);
 
-        yvector<int> r;
+        TVector<int> r;
 
         stack.DequeueAll(&r);
 
@@ -139,11 +140,11 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
         UNIT_ASSERT_VALUES_EQUAL(17, r.at(2));
     }
 
-    SIMPLE_UNIT_TEST(TestEnqueueAll) {
+    Y_UNIT_TEST(TestEnqueueAll) {
         TLockFreeStack<int> stack;
 
-        yvector<int> v;
-        yvector<int> expected;
+        TVector<int> v;
+        TVector<int> expected;
 
         stack.EnqueueAll(v); // add empty
 
@@ -164,7 +165,7 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
         expected.insert(expected.end(), v.begin(), v.end());
         stack.EnqueueAll(v);
 
-        yvector<int> actual;
+        TVector<int> actual;
         stack.DequeueAll(&actual);
 
         UNIT_ASSERT_VALUES_EQUAL(expected.size(), actual.size());
@@ -173,7 +174,7 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
         }
     }
 
-    SIMPLE_UNIT_TEST(CleanInDestructor) {
+    Y_UNIT_TEST(CleanInDestructor) {
         TSimpleSharedPtr<bool> p(new bool);
         UNIT_ASSERT_VALUES_EQUAL(1u, p.RefCount());
 
@@ -187,5 +188,156 @@ SIMPLE_UNIT_TEST_SUITE(TLockFreeStackTests) {
         }
 
         UNIT_ASSERT_VALUES_EQUAL(1, p.RefCount());
+    }
+
+    Y_UNIT_TEST(NoCopyTest) {
+        static unsigned copied = 0;
+        struct TCopyCount {
+            TCopyCount(int) {}
+            TCopyCount(const TCopyCount&) { ++copied; }
+
+            TCopyCount(TCopyCount&&) {}
+
+            TCopyCount& operator=(const TCopyCount&) {
+                ++copied;
+                return *this;
+            }
+
+            TCopyCount& operator=(TCopyCount&&) {
+                return *this;
+            }
+        };
+
+        TLockFreeStack<TCopyCount> stack;
+        stack.Enqueue(TCopyCount(1));
+        TCopyCount val(0);
+        stack.Dequeue(&val);
+        UNIT_ASSERT_VALUES_EQUAL(0, copied);
+    }
+
+    Y_UNIT_TEST(MoveOnlyTest) {
+        TLockFreeStack<THolder<bool>> stack;
+        stack.Enqueue(MakeHolder<bool>(true));
+        THolder<bool> val;
+        stack.Dequeue(&val);
+        UNIT_ASSERT(val);
+        UNIT_ASSERT_VALUES_EQUAL(true, *val);
+    }
+
+    template <class TTest>
+    struct TMultiThreadTester {
+        using ThisType = TMultiThreadTester<TTest>;
+
+        size_t Threads;
+        size_t OperationsPerThread;
+
+        TCountDownLatch StartLatch;
+        TLockFreeStack<typename TTest::ValueType> Stack;
+
+        TMultiThreadTester()
+            : Threads(10)
+            , OperationsPerThread(100000)
+            , StartLatch(Threads)
+        {
+        }
+
+        void Worker() {
+            StartLatch.CountDown();
+            StartLatch.Await();
+
+            TVector<typename TTest::ValueType> unused;
+            for (size_t i = 0; i < OperationsPerThread; ++i) {
+                switch (GetCycleCount() % 4) {
+                    case 0: {
+                        TTest::Enqueue(Stack, i);
+                        break;
+                    }
+                    case 1: {
+                        TTest::Dequeue(Stack);
+                        break;
+                    }
+                    case 2: {
+                        TTest::EnqueueAll(Stack);
+                        break;
+                    }
+                    case 3: {
+                        TTest::DequeueAll(Stack);
+                        break;
+                    }
+                }
+            }
+        }
+
+        void Run() {
+            TDeque<NThreading::TLegacyFuture<>> futures;
+
+            for (size_t i = 0; i < Threads; ++i) {
+                futures.emplace_back(std::bind(&ThisType::Worker, this));
+            }
+            futures.clear();
+            TTest::DequeueAll(Stack);
+        }
+
+    };
+
+    struct TFreeListTest {
+        using ValueType = int;
+
+        static void Enqueue(TLockFreeStack<int>& stack, size_t i) {
+            stack.Enqueue(static_cast<int>(i));
+        }
+
+        static void Dequeue(TLockFreeStack<int>& stack) {
+            int value;
+            stack.Dequeue(&value);
+        }
+
+        static void EnqueueAll(TLockFreeStack<int>& stack) {
+            TVector<int> values(5);
+            stack.EnqueueAll(values);
+        }
+
+        static void DequeueAll(TLockFreeStack<int>& stack) {
+            TVector<int> value;
+            stack.DequeueAll(&value);
+        }
+    };
+
+    // Test for catching thread sanitizer problems
+    Y_UNIT_TEST(TestFreeList) {
+        TMultiThreadTester<TFreeListTest>().Run();
+    }
+
+    struct TMoveTest {
+        using ValueType = THolder<int>;
+
+        static void Enqueue(TLockFreeStack<ValueType>& stack, size_t i) {
+            stack.Enqueue(MakeHolder<int>(static_cast<int>(i)));
+        }
+
+        static void Dequeue(TLockFreeStack<ValueType>& stack) {
+            ValueType value;
+            if (stack.Dequeue(&value)) {
+                UNIT_ASSERT(value);
+            }
+        }
+
+        static void EnqueueAll(TLockFreeStack<ValueType>& stack) {
+            // there is no enqueAll with moving signature in LockFreeStack
+            Enqueue(stack, 0);
+        }
+
+        static void DequeueAll(TLockFreeStack<ValueType>& stack) {
+            TVector<ValueType> values;
+            stack.DequeueAll(&values);
+            for (auto& v : values) {
+                UNIT_ASSERT(v);
+            }
+        }
+    };
+
+    // Test for catching thread sanitizer problems
+    Y_UNIT_TEST(TesMultiThreadMove) {
+        TMultiThreadTester<TMoveTest>().Run();
     }
 }

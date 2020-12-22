@@ -15,11 +15,12 @@ namespace NAddr {
         virtual socklen_t Len() const = 0;
     };
 
-    using IRemoteAddrPtr = TAutoPtr<IRemoteAddr>;
+    using IRemoteAddrPtr = THolder<IRemoteAddr>;
     using IRemoteAddrRef = TAtomicSharedPtr<NAddr::IRemoteAddr>;
 
     IRemoteAddrPtr GetSockAddr(SOCKET s);
-    void PrintHost(TOutputStream& out, const IRemoteAddr& addr);
+    IRemoteAddrPtr GetPeerAddr(SOCKET s);
+    void PrintHost(IOutputStream& out, const IRemoteAddr& addr);
 
     TString PrintHost(const IRemoteAddr& addr);
     TString PrintHostAndPort(const IRemoteAddr& addr);

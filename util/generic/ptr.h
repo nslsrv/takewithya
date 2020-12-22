@@ -21,10 +21,7 @@ inline void AssertTypeComplete() {
     // 'delete' called on pointer to incomplete type is
     // undefined behavior (missing destructor call/corrupted memory manager).
     // 'sizeof' is used to trigger compile-time error.
-    // Fake array type is used to create "readable" compiler error message.
-    // Search "checked delete C++ idiom" for more info
-    using type_must_be_complete = char[sizeof(T) ? 1 : -1];
-    (void)sizeof(type_must_be_complete);
+    static_assert(sizeof(T) != 0, "Type must be complete");
 }
 
 template <class T>
@@ -117,6 +114,7 @@ public:
         return ptr;
     }
 
+    #ifndef __cpp_impl_three_way_comparison
     template <class C>
     inline bool operator==(const C& p) const noexcept {
         return (p == AsT());
@@ -126,6 +124,7 @@ public:
     inline bool operator!=(const C& p) const noexcept {
         return (p != AsT());
     }
+    #endif
 
     inline explicit operator bool() const noexcept {
         return nullptr != AsT();
@@ -191,7 +190,7 @@ public:
         return *this;
     }
 
-    inline T* Release() const noexcept {
+    inline T* Release() const noexcept Y_WARN_UNUSED_RESULT {
         return this->DoRelease(T_);
     }
 
@@ -218,6 +217,12 @@ public:
         return T_;
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     inline void DoDestroy() noexcept {
         if (T_) {
@@ -280,7 +285,7 @@ public:
         Reset(nullptr);
     }
 
-    inline T* Release() noexcept {
+    inline T* Release() noexcept Y_WARN_UNUSED_RESULT {
         return this->DoRelease(T_);
     }
 
@@ -327,6 +332,12 @@ public:
         return *this;
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     inline void DoDestroy() noexcept {
         if (T_) {
@@ -340,7 +351,7 @@ private:
 
 template <typename T, typename... Args>
 THolder<T> MakeHolder(Args&&... args) {
-    return new T{std::forward<Args>(args)...};
+    return new T(std::forward<Args>(args)...);
 }
 
 /*
@@ -421,7 +432,7 @@ struct TThrRefBase: public TRefCounted<TThrRefBase, TAtomicCounter> {
  *
  * @warning Additional care should be taken with regard to inheritance.  If used
  * as a base class, @p T should either declare a virtual destructor, or be
- * derived from @p TThRefBase instead. Otherwise, only destructor of class @p T
+ * derived from @p TThrRefBase instead. Otherwise, only destructor of class @p T
  * would be called, potentially slicing the object and creating memory leaks.
  *
  * @note To avoid accidental inheritance when it is not originally intended,
@@ -469,6 +480,7 @@ public:
 
 template <class T, class Ops>
 class TIntrusivePtr: public TPointerBase<TIntrusivePtr<T, Ops>, T> {
+    friend class TIntrusiveConstPtr<T, Ops>;
 public:
     inline TIntrusivePtr(T* t = nullptr) noexcept
         : T_(t)
@@ -538,7 +550,7 @@ public:
         TIntrusivePtr(nullptr).Swap(*this);
     }
 
-    inline T* Release() const noexcept {
+    inline T* Release() const noexcept Y_WARN_UNUSED_RESULT {
         T* res = T_;
         if (T_) {
             Ops::DecRef(T_);
@@ -551,6 +563,12 @@ public:
         return T_ ? Ops::RefCount(T_) : 0;
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     inline void Ref() noexcept {
         if (T_) {
@@ -568,9 +586,17 @@ private:
     mutable T* T_;
 };
 
+template <class T, class Ops>
+struct THash<TIntrusivePtr<T, Ops>> : THash<const T*> {
+    using THash<const T*>::operator();
+    inline size_t operator()(const TIntrusivePtr<T, Ops>& ptr) const {
+        return THash<const T*>::operator()(ptr.Get());
+    }
+};
+
 // Behaves like TIntrusivePtr but returns const T* to prevent user from accidentally modifying the referenced object.
 template <class T, class Ops>
-class TIntrusiveConstPtr {
+class TIntrusiveConstPtr: public TPointerBase<TIntrusiveConstPtr<T, Ops>, const T> {
 public:
     inline TIntrusiveConstPtr(T* t = nullptr) noexcept // we need a non-const pointer to Ref(), UnRef() and eventually delete it.
         : T_(t)
@@ -595,10 +621,10 @@ public:
         Swap(p);
     }
 
-    inline TIntrusiveConstPtr(const TIntrusivePtr<T, Ops>& p) noexcept
-        : T_(p.Get())
+    inline TIntrusiveConstPtr(TIntrusivePtr<T, Ops> p) noexcept
+        : T_(nullptr)
     {
-        Ref();
+        DoSwap(T_, p.T_);
     }
 
     template <class U>
@@ -637,29 +663,16 @@ public:
         TIntrusiveConstPtr(nullptr).Swap(*this);
     }
 
-    inline const T* operator->() const noexcept {
-        return Get();
+    inline long RefCount() const noexcept {
+        return T_ ? Ops::RefCount(T_) : 0;
     }
 
-    template <class C>
-    inline bool operator==(const C& p) const noexcept {
-        return Get() == p;
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
     }
-
-    template <class C>
-    inline bool operator!=(const C& p) const noexcept {
-        return Get() != p;
-    }
-
-    inline explicit operator bool() const noexcept {
-        return Get() != nullptr;
-    }
-
-    inline const T& operator*() const noexcept {
-        Y_ASSERT(Get() != nullptr);
-        return *Get();
-    }
-
+    #endif
 private:
     inline void Ref() noexcept {
         if (T_ != nullptr) {
@@ -681,8 +694,20 @@ private:
 };
 
 template <class T, class Ops>
+struct THash<TIntrusiveConstPtr<T, Ops>> : THash<const T*> {
+    using THash<const T*>::operator();
+    inline size_t operator()(const TIntrusiveConstPtr<T, Ops>& ptr) const {
+        return THash<const T*>::operator()(ptr.Get());
+    }
+};
+
+template <class T, class Ops>
 class TSimpleIntrusiveOps {
-    using TFunc = void (*)(T*);
+    using TFunc = void (*)(T*)
+#if __cplusplus >= 201703
+        noexcept
+#endif
+        ;
 
     static void DoRef(T* t) noexcept {
         Ops::Ref(t);
@@ -837,6 +862,12 @@ public:
         return C_ ? C_->Val() : 0;
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     template <class X>
     inline void Init(X& t) {
@@ -869,6 +900,14 @@ private:
     C* C_;
 };
 
+template <class T, class C, class D>
+struct THash<TSharedPtr<T, C, D>> : THash<const T*> {
+    using THash<const T*>::operator();
+    inline size_t operator()(const TSharedPtr<T, C, D>& ptr) const {
+        return THash<const T*>::operator()(ptr.Get());
+    }
+};
+
 template <class T, class D = TDelete>
 using TAtomicSharedPtr = TSharedPtr<T, TAtomicCounter, D>;
 
@@ -890,64 +929,6 @@ template <typename T, typename... Args>
 inline TSimpleSharedPtr<T> MakeSimpleShared(Args&&... args) {
     return MakeShared<T, TSimpleCounter>(std::forward<Args>(args)...);
 }
-
-template <class T, class D>
-class TLinkedPtr: public TPointerBase<TLinkedPtr<T, D>, T>, public TIntrusiveListItem<TLinkedPtr<T, D>> {
-    using TListBase = TIntrusiveListItem<TLinkedPtr>;
-
-public:
-    inline TLinkedPtr(T* t) noexcept
-        : TListBase()
-        , T_(t)
-    {
-        Y_ASSERT(Last());
-    }
-
-    inline TLinkedPtr(const TLinkedPtr& r) noexcept
-        : TListBase()
-        , T_(r.T_)
-    {
-        this->LinkBefore((TLinkedPtr&)r);
-        Y_ASSERT(!Last());
-    }
-
-    inline ~TLinkedPtr() {
-        DoDestroy();
-    }
-
-    inline TLinkedPtr& operator=(const TLinkedPtr& t) noexcept {
-        if (this != &t) {
-            DoDestroy();
-            T_ = t.T_;
-            this->LinkBefore((TLinkedPtr&)t);
-            Y_ASSERT(!Last());
-        }
-
-        return *this;
-    }
-
-    inline T* Get() const noexcept {
-        return T_;
-    }
-
-    inline void Swap(TLinkedPtr& r) noexcept {
-        DoSwap(*this, r);
-    }
-
-private:
-    inline bool Last() const noexcept {
-        return this == this->Next();
-    }
-
-    inline void DoDestroy() noexcept {
-        if (T_ && Last()) {
-            D::Destroy(T_);
-        }
-    }
-
-private:
-    T* T_;
-};
 
 class TCopyClone {
 public:
@@ -998,7 +979,7 @@ public:
         return *this;
     }
 
-    inline T* Release() noexcept {
+    inline T* Release() noexcept Y_WARN_UNUSED_RESULT {
         return DoRelease(T_);
     }
 
@@ -1025,6 +1006,12 @@ public:
         return T_;
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     inline void DoDestroy() noexcept {
         if (T_)
@@ -1083,6 +1070,12 @@ public:
         T_.Reset();
     }
 
+    #ifdef __cpp_impl_three_way_comparison
+    template <class Other>
+    inline bool operator==(const Other& p) const noexcept {
+        return (p == Get());
+    }
+    #endif
 private:
     inline void Unshare() {
         if (Shared()) {
@@ -1094,7 +1087,7 @@ private:
     TPtr T_;
 };
 
-// saves .Get() on argement passing. Intended usage: Func(TPtrArg<X> p); ... TIntrusivePtr<X> p2;  Func(p2);
+// saves .Get() on argument passing. Intended usage: Func(TPtrArg<X> p); ... TIntrusivePtr<X> p2;  Func(p2);
 template <class T>
 class TPtrArg {
     T* Ptr;

@@ -6,26 +6,47 @@
 
 // just to test that generated stuff works
 #include <util/generic/serialized_enum.h>
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
+#include <util/generic/ptr.h>
+#include <util/generic/singleton.h>
 
 
 void FunctionUsingEFwdEnum(EFwdEnum) {
 }
 
-// fwd
-const yvector<TString>& EDuplicateKeysAllCppNames();
-const yvector<TString>& ESimpleWithCommaAllCppNames();
+class TEnumSerializationInitializer {
+public:
+    TEnumSerializationInitializer() {
+        UNIT_ASSERT_VALUES_EQUAL(ToString(EDestructionPriorityTest::first), "first");
+    }
+    ~TEnumSerializationInitializer() {
+        UNIT_ASSERT_VALUES_EQUAL(ToString(EDestructionPriorityTest::second), "second");
+    }
+};
+
+class TEnumSerializationInitializerHolder {
+public:
+    TEnumSerializationInitializerHolder() {
+    }
+
+    ~TEnumSerializationInitializerHolder() {
+    }
+
+    void Init() { Ptr.Reset(new TEnumSerializationInitializer); }
+private:
+    THolder<TEnumSerializationInitializer> Ptr;
+};
 
 
-SIMPLE_UNIT_TEST_SUITE(TEnumGeneratorTest) {
+Y_UNIT_TEST_SUITE(TEnumGeneratorTest) {
 
     template<typename T>
     void CheckToString(const T& value, const TString& strValue) {
         UNIT_ASSERT_VALUES_EQUAL(ToString(value), strValue);
     }
 
-    SIMPLE_UNIT_TEST(ToStringTest) {
+    Y_UNIT_TEST(ToStringTest) {
         // ESimple
         CheckToString(Http, "Http");
         CheckToString(Https, "Https");
@@ -79,7 +100,7 @@ SIMPLE_UNIT_TEST_SUITE(TEnumGeneratorTest) {
         UNIT_ASSERT_VALUES_EQUAL(int(x), -666);
     }
 
-    SIMPLE_UNIT_TEST(TryFromStringTest) {
+    Y_UNIT_TEST(TryFromStringTest) {
         // ESimple
         CheckFromString("Http", Http);
         CheckFromString("Https", Https);
@@ -111,36 +132,64 @@ SIMPLE_UNIT_TEST_SUITE(TEnumGeneratorTest) {
         CheckTryFromString("k3", Key3);
     }
 
-    SIMPLE_UNIT_TEST(AllNamesValuesTest) {
+    Y_UNIT_TEST(AllNamesValuesTest) {
         {
-            auto allNames = EDuplicateKeysAllCppNames();
+            auto allNames = GetEnumAllCppNames<EDuplicateKeys>();
             UNIT_ASSERT(!!allNames);
-            UNIT_ASSERT_VALUES_EQUAL(+allNames, 5u);
+            UNIT_ASSERT_VALUES_EQUAL(allNames.size(), 5u);
             UNIT_ASSERT_VALUES_EQUAL(allNames[4], "Key3");
         }
         {
-            auto allNames = ESimpleWithCommaAllCppNames();
+            auto allNames = GetEnumAllCppNames<ESimpleWithComma>();
             UNIT_ASSERT(!!allNames);
-            UNIT_ASSERT_VALUES_EQUAL(+allNames, 4u);
+            UNIT_ASSERT_VALUES_EQUAL(allNames.size(), 4u);
             UNIT_ASSERT_VALUES_EQUAL(allNames[1], "ESimpleWithComma::Http2");
         }
     }
 
-    SIMPLE_UNIT_TEST(EnumWithHeaderTest) {
+    Y_UNIT_TEST(EnumWithHeaderTest) {
         UNIT_ASSERT_VALUES_EQUAL(GetEnumItemsCount<EWithHeader>(), 3);
     }
 
-    SIMPLE_UNIT_TEST(EnumNamesTest) {
-        const ymap<EWithHeader, TString>& names = GetEnumNames<EWithHeader>();
+    Y_UNIT_TEST(AllNamesValuesWithHeaderTest) {
+        {
+            auto allNames = GetEnumAllCppNames<EWithHeader>();
+            UNIT_ASSERT_VALUES_EQUAL(allNames.size(), 3u);
+            UNIT_ASSERT_VALUES_EQUAL(allNames.at(2), "HThree");
+        }
+        {
+            UNIT_ASSERT_VALUES_EQUAL(GetEnumAllNames<EWithHeader>(), "'one', 'HTwo', 'HThree'");
+        }
+    }
+
+    Y_UNIT_TEST(AllValuesTest) {
+        const auto& allNames = GetEnumNames<EWithHeader>();
+        const auto& allValues = GetEnumAllValues<EWithHeader>();
+        UNIT_ASSERT_VALUES_EQUAL(allValues.size(), 3u);
+        UNIT_ASSERT_VALUES_EQUAL(allValues[2], HThree);
+        size_t size = 0;
+        for (const EWithHeader value : GetEnumAllValues<EWithHeader>()) {
+            size += 1;
+            UNIT_ASSERT_VALUES_EQUAL(allNames.contains(value), true);
+        }
+        UNIT_ASSERT_VALUES_EQUAL(size, 3u);
+    }
+
+    Y_UNIT_TEST(EnumNamesTest) {
+        const auto& names = GetEnumNames<EWithHeader>();
         UNIT_ASSERT_VALUES_EQUAL(names.size(), 3u);
 
-        UNIT_ASSERT(names.has(HOne));
+        UNIT_ASSERT(names.contains(HOne));
         UNIT_ASSERT_VALUES_EQUAL(names.at(HOne), "one");
 
-        UNIT_ASSERT(names.has(HTwo));
+        UNIT_ASSERT(names.contains(HTwo));
         UNIT_ASSERT_VALUES_EQUAL(names.at(HTwo), "HTwo");
 
-        UNIT_ASSERT(names.has(HThree));
+        UNIT_ASSERT(names.contains(HThree));
         UNIT_ASSERT_VALUES_EQUAL(names.at(HThree), "HThree");
+    }
+
+    Y_UNIT_TEST(EnumSerializerDestructionPriority) {
+        Singleton<TEnumSerializationInitializerHolder>()->Init();
     }
 };

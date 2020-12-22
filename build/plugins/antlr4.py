@@ -1,24 +1,19 @@
-from _common import sort_by_keywords
+ANTLR4_JAR_PATH = 'antlr-4.9-complete.jar'
 
-ANTLR4_RESOURCE_ID = '286885771'
-ANTLR4_JAR_PATH = 'antlr-4.7-complete.jar'
 
 def onrun_antlr4(unit, *args):
-    unit.onexternal_resource(['ANTLR4', 'sbr:' + ANTLR4_RESOURCE_ID])
-
     if len(args) < 1:
         raise Exception("Not enough arguments for RUN_ANTLR4 macro")
 
-    arg_list = ['-jar', '${ANTLR4}/' + ANTLR4_JAR_PATH]
+    unit.onpeerdir(['build/external_resources/antlr4'])
+
+    arg_list = ['-jar', '$ANTLR4_RESOURCE_GLOBAL/' + ANTLR4_JAR_PATH]
     arg_list += list(args)
 
-    # XXX workaround ymake swag behavior
-    unit.set(['ANTLR4', '$(ANTLR4)'])
-    unit.onrun_java(arg_list)
+    unit.on_run_java(arg_list)
+
 
 def onrun_antlr4_cpp(unit, *args):
-    unit.onexternal_resource(['ANTLR4', 'sbr:' + ANTLR4_RESOURCE_ID])
-
     if len(args) < 1:
         raise Exception("Not enough arguments for RUN_ANTLR4_CPP macro")
 
@@ -35,5 +30,5 @@ def onrun_antlr4_cpp(unit, *args):
     if '-visitor' in args:
         arg_list += [ 'OUT', grammar + 'Visitor.h', grammar + 'BaseVisitor.h' ]
     arg_list += [ 'CWD', '${BINDIR}' ]
-
+    arg_list += [ 'OUTPUT_INCLUDES', '${ARCADIA_ROOT}/contrib/libs/antlr4_cpp_runtime/src/antlr4-runtime.h' ]
     unit.onrun_antlr4(arg_list)

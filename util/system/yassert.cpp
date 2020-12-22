@@ -5,7 +5,9 @@
 #include "spinlock.h"
 #include "src_root.h"
 
+#include <util/datetime/base.h>
 #include <util/generic/singleton.h>
+#include <util/generic/strbuf.h>
 #include <util/generic/string.h>
 #include <util/stream/output.h>
 #include <util/stream/str.h>
@@ -15,9 +17,16 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#ifdef CLANG_COVERAGE
+extern "C" int __llvm_profile_write_file(void);
+#endif
+
 namespace {
     struct TPanicLockHolder: public TAdaptiveLock {
     };
+}
+namespace NPrivate {
+    [[noreturn]] Y_NO_INLINE void InternalPanicImpl(int line, const char* function, const char* expr, int, int, int, const TStringBuf file, const char* errorMessage, size_t errorMessageSize) noexcept;
 }
 
 void ::NPrivate::Panic(const TStaticBuf& file, int line, const char* function, const char* expr, const char* format, ...) noexcept {
@@ -33,26 +42,44 @@ void ::NPrivate::Panic(const TStaticBuf& file, int line, const char* function, c
         vsprintf(errorMsg, format[0] == ' ' ? format + 1 : format, args);
         va_end(args);
 
+        constexpr int abiPlaceholder = 0;
+        ::NPrivate::InternalPanicImpl(line, function, expr, abiPlaceholder, abiPlaceholder, abiPlaceholder, file.As<TStringBuf>(), errorMsg.c_str(), errorMsg.size());
+    } catch (...) {
+        // ¯\_(ツ)_/¯
+    }
+
+    abort();
+}
+
+namespace NPrivate {
+    [[noreturn]] Y_NO_INLINE void InternalPanicImpl(int line, const char* function, const char* expr, int, int, int, const TStringBuf file, const char* errorMessage, size_t errorMessageSize) noexcept try {
+        TStringBuf errorMsg{errorMessage, errorMessageSize};
+        const TString now = TInstant::Now().ToStringLocal();
+
         TString r;
         TStringOutput o(r);
         if (expr) {
-            o << "VERIFY failed: " << errorMsg << Endl;
+            o << "VERIFY failed (" << now << "): " << errorMsg << Endl;
         } else {
-            o << "FAIL: " << errorMsg << Endl;
+            o << "FAIL (" << now << "): " << errorMsg << Endl;
         }
-        o << "  " << file.As<TStringBuf>() << ":" << line << Endl;
+        o << "  " << file << ":" << line << Endl;
         if (expr) {
             o << "  " << function << "(): requirement " << expr << " failed" << Endl;
         } else {
             o << "  " << function << "() failed" << Endl;
         }
-        Cerr << r;
+        Cerr << r << Flush;
 #ifndef WITH_VALGRIND
         PrintBackTrace();
 #endif
+#ifdef CLANG_COVERAGE
+        if (__llvm_profile_write_file()) {
+            Cerr << "Failed to dump clang coverage" << Endl;
+        }
+#endif
+        abort();
     } catch (...) {
-        //nothing we can do here
+        abort();
     }
-
-    abort();
 }

@@ -271,6 +271,7 @@ msiobj_dealloc(msiobj* msidb)
 {
     MsiCloseHandle(msidb->h);
     msidb->h = 0;
+    PyObject_Del(msidb);
 }
 
 static PyObject*
@@ -320,6 +321,10 @@ msierror(int status)
     code = MsiRecordGetInteger(err, 1); /* XXX code */
     if (MsiFormatRecord(0, err, res, &size) == ERROR_MORE_DATA) {
         res = (char*)malloc(size+1);
+        if (res == NULL) {
+            MsiCloseHandle(err);
+            return PyErr_NoMemory();
+        }
         MsiFormatRecord(0, err, res, &size);
         res[size]='\0';
     }
@@ -543,6 +548,9 @@ summary_getproperty(msiobj* si, PyObject *args)
         &fval, sval, &ssize);
     if (status == ERROR_MORE_DATA) {
         sval = (char*)malloc(ssize);
+        if (sval == NULL) {
+            return PyErr_NoMemory();
+        }
         status = MsiSummaryInfoGetProperty(si->h, field, &type, &ival,
             &fval, sval, &ssize);
     }
@@ -938,6 +946,17 @@ static PyTypeObject msidb_Type = {
         0,                      /*tp_is_gc*/
 };
 
+#define Py_NOT_PERSIST(x, flag)                        \
+    (x != (int)(flag) &&                      \
+    x != ((int)(flag) | MSIDBOPEN_PATCHFILE))
+
+#define Py_INVALID_PERSIST(x)                \
+    (Py_NOT_PERSIST(x, MSIDBOPEN_READONLY) &&  \
+    Py_NOT_PERSIST(x, MSIDBOPEN_TRANSACT) &&   \
+    Py_NOT_PERSIST(x, MSIDBOPEN_DIRECT) &&     \
+    Py_NOT_PERSIST(x, MSIDBOPEN_CREATE) &&     \
+    Py_NOT_PERSIST(x, MSIDBOPEN_CREATEDIRECT))
+
 static PyObject* msiopendb(PyObject *obj, PyObject *args)
 {
     int status;
@@ -945,11 +964,14 @@ static PyObject* msiopendb(PyObject *obj, PyObject *args)
     int persist;
     MSIHANDLE h;
     msiobj *result;
-
     if (!PyArg_ParseTuple(args, "si:MSIOpenDatabase", &path, &persist))
         return NULL;
-
-        status = MsiOpenDatabase(path, (LPCSTR)persist, &h);
+    /* We need to validate that persist is a valid MSIDBOPEN_* value. Otherwise,
+       MsiOpenDatabase may treat the value as a pointer, leading to unexpected
+       behavior. */
+    if (Py_INVALID_PERSIST(persist))
+        return msierror(ERROR_INVALID_PARAMETER);
+    status = MsiOpenDatabase(path, (LPCSTR)persist, &h);
     if (status != ERROR_SUCCESS)
         return msierror(status);
 

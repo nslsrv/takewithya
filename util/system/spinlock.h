@@ -1,6 +1,7 @@
 #pragma once
 
 #include "atomic.h"
+#include "spin_wait.h"
 
 class TSpinLockBase {
 protected:
@@ -9,12 +10,16 @@ protected:
     }
 
 public:
-    inline bool IsLocked() noexcept {
+    inline bool IsLocked() const noexcept {
         return AtomicGet(Val_);
     }
 
     inline bool TryAcquire() noexcept {
         return AtomicTryLock(&Val_);
+    }
+
+    inline bool try_lock() noexcept {
+        return TryAcquire();
     }
 
 protected:
@@ -51,13 +56,23 @@ public:
     inline void Acquire() noexcept {
         AcquireSpinLock(&Val_);
     }
+
+    inline void unlock() noexcept {
+        Release();
+    }
+
+    inline void lock() noexcept {
+        Acquire();
+    }
 };
 
 static inline void AcquireAdaptiveLock(TAtomic* l) {
-    extern void AcquireAdaptiveLockSlow(TAtomic * l);
-
     if (!AtomicTryLock(l)) {
-        AcquireAdaptiveLockSlow(l);
+        TSpinWait sw;
+
+        while (!AtomicTryAndTryLock(l)) {
+            sw.Sleep();
+        }
     }
 }
 
@@ -73,6 +88,14 @@ public:
 
     inline void Acquire() noexcept {
         AcquireAdaptiveLock(&Val_);
+    }
+
+    inline void unlock() noexcept {
+        Release();
+    }
+
+    inline void lock() noexcept {
+        Acquire();
     }
 };
 

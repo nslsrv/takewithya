@@ -1,10 +1,10 @@
 #include "ascii.h"
 #include <ctype.h>
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
-    SIMPLE_UNIT_TEST(TestAscii) {
+Y_UNIT_TEST_SUITE(TAsciiTest) {
+    Y_UNIT_TEST(TestAscii) {
         UNIT_ASSERT(IsAsciiDigit('3'));
         UNIT_ASSERT(!IsAsciiDigit('x'));
 
@@ -34,10 +34,11 @@ SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
             UNIT_ASSERT_VALUES_EQUAL((bool)isupper(i), IsAsciiUpper((char)i));
             UNIT_ASSERT_VALUES_EQUAL((bool)islower(i), IsAsciiLower((char)i));
             UNIT_ASSERT_VALUES_EQUAL((bool)isdigit(i), IsAsciiDigit((char)i));
+            UNIT_ASSERT_VALUES_EQUAL((bool)ispunct(i), IsAsciiPunct((char)i));
         }
     }
 
-    SIMPLE_UNIT_TEST(Test1) {
+    Y_UNIT_TEST(Test1) {
         for (int i = 128; i < 1000; ++i) {
             UNIT_ASSERT(!IsAsciiHex(i));
             UNIT_ASSERT(!IsAsciiSpace(i));
@@ -46,6 +47,7 @@ SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
             UNIT_ASSERT(!IsAsciiUpper(i));
             UNIT_ASSERT(!IsAsciiLower(i));
             UNIT_ASSERT(!IsAsciiDigit(i));
+            UNIT_ASSERT(!IsAsciiPunct(i));
         }
 
         for (int i = -1000; i < 0; ++i) {
@@ -56,12 +58,13 @@ SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
             UNIT_ASSERT(!IsAsciiUpper(i));
             UNIT_ASSERT(!IsAsciiLower(i));
             UNIT_ASSERT(!IsAsciiDigit(i));
+            UNIT_ASSERT(!IsAsciiPunct(i));
         }
     }
 
-    SIMPLE_UNIT_TEST(CompareTest) {
+    Y_UNIT_TEST(CompareTest) {
         UNIT_ASSERT(AsciiEqualsIgnoreCase("qqq", "qQq"));
-        UNIT_ASSERT(AsciiEqualsIgnoreCase("qqq", STRINGBUF("qQq")));
+        UNIT_ASSERT(AsciiEqualsIgnoreCase("qqq", TStringBuf("qQq")));
         TString qq = "qq";
         TString qQ = "qQ";
         UNIT_ASSERT(AsciiEqualsIgnoreCase(qq, qQ));
@@ -71,9 +74,9 @@ SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
         TString z = "qQnB";
         TString zz = "qQqq";
         TString zzz = "qQqqq";
-        TStringBuf xs = TStringBuf(~x, 3);
-        TStringBuf ys = TStringBuf(~y, 3);
-        TStringBuf zs = TStringBuf(~z, 3);
+        TStringBuf xs = TStringBuf(x.data(), 3);
+        TStringBuf ys = TStringBuf(y.data(), 3);
+        TStringBuf zs = TStringBuf(z.data(), 3);
         UNIT_ASSERT(AsciiCompareIgnoreCase(xs, ys) == 0);
         UNIT_ASSERT(AsciiCompareIgnoreCase(xs, zs) > 0);
         UNIT_ASSERT(AsciiCompareIgnoreCase(xs, zz) < 0);
@@ -81,6 +84,10 @@ SIMPLE_UNIT_TEST_SUITE(TAsciiTest) {
 
         UNIT_ASSERT(AsciiCompareIgnoreCase("qqQ", "qq") > 0);
         UNIT_ASSERT(AsciiCompareIgnoreCase("qq", "qq") == 0);
+
+        UNIT_ASSERT_EQUAL(AsciiHasPrefix("qweasd", "qwe"), true);
+        UNIT_ASSERT_EQUAL(AsciiHasPrefix("qweasd", "qWe"), false);
+        UNIT_ASSERT_EQUAL(AsciiHasPrefix("qweasd", "eWq"), false);
 
         UNIT_ASSERT_EQUAL(AsciiHasPrefixIgnoreCase("qweasd", "qWe"), true);
         UNIT_ASSERT_EQUAL(AsciiHasPrefixIgnoreCase("qweasd", "eWq"), false);

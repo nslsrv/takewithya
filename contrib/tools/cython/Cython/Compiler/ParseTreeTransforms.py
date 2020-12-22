@@ -7,6 +7,7 @@ cython.declare(PyrexTypes=object, Naming=object, ExprNodes=object, Nodes=object,
                error=object, warning=object, copy=object, _unicode=object)
 
 import copy
+import hashlib
 
 from . import PyrexTypes
 from . import Naming
@@ -14,29 +15,15 @@ from . import ExprNodes
 from . import Nodes
 from . import Options
 from . import Builtin
+from . import Errors
 
 from .Visitor import VisitorTransform, TreeVisitor
 from .Visitor import CythonTransform, EnvTransform, ScopeTrackingTransform
-from .UtilNodes import LetNode, LetRefNode, ResultRefNode
+from .UtilNodes import LetNode, LetRefNode
 from .TreeFragment import TreeFragment
 from .StringEncoding import EncodedString, _unicode
 from .Errors import error, warning, CompileError, InternalError
 from .Code import UtilityCode
-
-
-class NameNodeCollector(TreeVisitor):
-    """Collect all NameNodes of a (sub-)tree in the ``name_nodes``
-    attribute.
-    """
-    def __init__(self):
-        super(NameNodeCollector, self).__init__()
-        self.name_nodes = []
-
-    def visit_NameNode(self, node):
-        self.name_nodes.append(node)
-
-    def visit_Node(self, node):
-        self._visitchildren(node, None)
 
 
 class SkipDeclarations(object):
@@ -64,6 +51,7 @@ class SkipDeclarations(object):
 
     def visit_CStructOrUnionDefNode(self, node):
         return node
+
 
 class NormalizeTree(CythonTransform):
     """
@@ -192,7 +180,7 @@ class PostParse(ScopeTrackingTransform):
         # unpack a lambda expression into the corresponding DefNode
         collector = YieldNodeCollector()
         collector.visitchildren(node.result_expr)
-        if collector.yields or collector.awaits or isinstance(node.result_expr, ExprNodes.YieldExprNode):
+        if collector.has_yield or collector.has_await or isinstance(node.result_expr, ExprNodes.YieldExprNode):
             body = Nodes.ExprStatNode(
                 node.result_expr.pos, expr=node.result_expr)
         else:
@@ -208,11 +196,22 @@ class PostParse(ScopeTrackingTransform):
 
     def visit_GeneratorExpressionNode(self, node):
         # unpack a generator expression into the corresponding DefNode
-        node.def_node = Nodes.DefNode(node.pos, name=node.name,
-                                      doc=None,
-                                      args=[], star_arg=None,
-                                      starstar_arg=None,
-                                      body=node.loop)
+        collector = YieldNodeCollector()
+        collector.visitchildren(node.loop)
+        node.def_node = Nodes.DefNode(
+            node.pos, name=node.name, doc=None,
+            args=[], star_arg=None, starstar_arg=None,
+            body=node.loop, is_async_def=collector.has_await)
+        self.visitchildren(node)
+        return node
+
+    def visit_ComprehensionNode(self, node):
+        # enforce local scope also in Py2 for async generators (seriously, that's a Py3.6 feature...)
+        if not node.has_local_scope:
+            collector = YieldNodeCollector()
+            collector.visitchildren(node.loop)
+            if collector.has_await:
+                node.has_local_scope = True
         self.visitchildren(node)
         return node
 
@@ -600,7 +599,29 @@ class PxdPostParse(CythonTransform, SkipDeclarations):
         else:
             return node
 
-class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
+
+class TrackNumpyAttributes(VisitorTransform, SkipDeclarations):
+    # TODO: Make name handling as good as in InterpretCompilerDirectives() below - probably best to merge the two.
+    def __init__(self):
+        super(TrackNumpyAttributes, self).__init__()
+        self.numpy_module_names = set()
+
+    def visit_CImportStatNode(self, node):
+        if node.module_name == u"numpy":
+            self.numpy_module_names.add(node.as_name or u"numpy")
+        return node
+
+    def visit_AttributeNode(self, node):
+        self.visitchildren(node)
+        obj = node.obj
+        if (obj.is_name and obj.name in self.numpy_module_names) or obj.is_numpy_attribute:
+            node.is_numpy_attribute = True
+        return node
+
+    visit_Node = VisitorTransform.recurse_to_children
+
+
+class InterpretCompilerDirectives(CythonTransform):
     """
     After parsing, directives can be stored in a number of places:
     - #cython-comments at the top of the file (stored in ModuleNode)
@@ -635,8 +656,9 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         'operator.predecrement' : ExprNodes.inc_dec_constructor(True, '--'),
         'operator.postincrement': ExprNodes.inc_dec_constructor(False, '++'),
         'operator.postdecrement': ExprNodes.inc_dec_constructor(False, '--'),
+        'operator.typeid'       : ExprNodes.TypeidNode,
 
-        # For backwards compatability.
+        # For backwards compatibility.
         'address': ExprNodes.AmpersandNode,
     }
 
@@ -661,7 +683,7 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         self.cython_module_names = set()
         self.directive_names = {'staticmethod': 'staticmethod'}
         self.parallel_directives = {}
-        directives = copy.deepcopy(Options.directive_defaults)
+        directives = copy.deepcopy(Options.get_directive_defaults())
         for key, value in compilation_directive_defaults.items():
             directives[_unicode(key)] = copy.deepcopy(value)
         self.directives = directives
@@ -673,8 +695,7 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
                                         'is not allowed in %s scope' % (directive, scope)))
             return False
         else:
-            if (directive not in Options.directive_defaults
-                    and directive not in Options.directive_types):
+            if directive not in Options.directive_types:
                 error(pos, "Invalid directive: '%s'." % (directive,))
             return True
 
@@ -820,7 +841,14 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         if node.name in self.cython_module_names:
             node.is_cython_module = True
         else:
-            node.cython_attribute = self.directive_names.get(node.name)
+            directive = self.directive_names.get(node.name)
+            if directive is not None:
+                node.cython_attribute = directive
+        return node
+
+    def visit_NewExprNode(self, node):
+        self.visit(node.cppclass)
+        self.visitchildren(node)
         return node
 
     def try_to_parse_directives(self, node):
@@ -858,7 +886,8 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
             if optname:
                 directivetype = Options.directive_types.get(optname)
                 if directivetype is bool:
-                    return [(optname, True)]
+                    arg = ExprNodes.BoolNode(node.pos, value=True)
+                    return [self.try_to_parse_directive(optname, [arg], None, node.pos)]
                 elif directivetype is None:
                     return [(optname, None)]
                 else:
@@ -867,9 +896,28 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         return None
 
     def try_to_parse_directive(self, optname, args, kwds, pos):
+        if optname == 'np_pythran' and not self.context.cpp:
+            raise PostParseError(pos, 'The %s directive can only be used in C++ mode.' % optname)
+        elif optname == 'exceptval':
+            # default: exceptval(None, check=True)
+            arg_error = len(args) > 1
+            check = True
+            if kwds and kwds.key_value_pairs:
+                kw = kwds.key_value_pairs[0]
+                if (len(kwds.key_value_pairs) == 1 and
+                        kw.key.is_string_literal and kw.key.value == 'check' and
+                        isinstance(kw.value, ExprNodes.BoolNode)):
+                    check = kw.value.value
+                else:
+                    arg_error = True
+            if arg_error:
+                raise PostParseError(
+                    pos, 'The exceptval directive takes 0 or 1 positional arguments and the boolean keyword "check"')
+            return ('exceptval', (args[0] if args else None, check))
+
         directivetype = Options.directive_types.get(optname)
         if len(args) == 1 and isinstance(args[0], ExprNodes.NoneNode):
-            return optname, Options.directive_defaults[optname]
+            return optname, Options.get_directive_defaults()[optname]
         elif directivetype is bool:
             if kwds is not None or len(args) != 1 or not isinstance(args[0], ExprNodes.BoolNode):
                 raise PostParseError(pos,
@@ -897,7 +945,7 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
                     'The %s directive takes no prepositional arguments' % optname)
             return optname, dict([(key.value, value) for key, value in kwds.key_value_pairs])
         elif directivetype is list:
-            if kwds and len(kwds) != 0:
+            if kwds and len(kwds.key_value_pairs) != 0:
                 raise PostParseError(pos,
                     'The %s directive takes no keyword arguments' % optname)
             return optname, [ str(arg.value) for arg in args ]
@@ -910,30 +958,33 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         else:
             assert False
 
-    def visit_with_directives(self, body, directives):
-        olddirectives = self.directives
-        newdirectives = copy.copy(olddirectives)
-        newdirectives.update(directives)
-        self.directives = newdirectives
-        assert isinstance(body, Nodes.StatListNode), body
-        retbody = self.visit_Node(body)
-        directive = Nodes.CompilerDirectivesNode(pos=retbody.pos, body=retbody,
-                                                 directives=newdirectives)
-        self.directives = olddirectives
-        return directive
+    def visit_with_directives(self, node, directives):
+        if not directives:
+            return self.visit_Node(node)
+
+        old_directives = self.directives
+        new_directives = dict(old_directives)
+        new_directives.update(directives)
+
+        if new_directives == old_directives:
+            return self.visit_Node(node)
+
+        self.directives = new_directives
+        retbody = self.visit_Node(node)
+        self.directives = old_directives
+
+        if not isinstance(retbody, Nodes.StatListNode):
+            retbody = Nodes.StatListNode(node.pos, stats=[retbody])
+        return Nodes.CompilerDirectivesNode(
+            pos=retbody.pos, body=retbody, directives=new_directives)
 
     # Handle decorators
     def visit_FuncDefNode(self, node):
         directives = self._extract_directives(node, 'function')
-        if not directives:
-            return self.visit_Node(node)
-        body = Nodes.StatListNode(node.pos, stats=[node])
-        return self.visit_with_directives(body, directives)
+        return self.visit_with_directives(node, directives)
 
     def visit_CVarDefNode(self, node):
         directives = self._extract_directives(node, 'function')
-        if not directives:
-            return node
         for name, value in directives.items():
             if name == 'locals':
                 node.directive_locals = value
@@ -942,29 +993,19 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
                     node.pos,
                     "Cdef functions can only take cython.locals(), "
                     "staticmethod, or final decorators, got %s." % name))
-        body = Nodes.StatListNode(node.pos, stats=[node])
-        return self.visit_with_directives(body, directives)
+        return self.visit_with_directives(node, directives)
 
     def visit_CClassDefNode(self, node):
         directives = self._extract_directives(node, 'cclass')
-        if not directives:
-            return self.visit_Node(node)
-        body = Nodes.StatListNode(node.pos, stats=[node])
-        return self.visit_with_directives(body, directives)
+        return self.visit_with_directives(node, directives)
 
     def visit_CppClassNode(self, node):
         directives = self._extract_directives(node, 'cppclass')
-        if not directives:
-            return self.visit_Node(node)
-        body = Nodes.StatListNode(node.pos, stats=[node])
-        return self.visit_with_directives(body, directives)
+        return self.visit_with_directives(node, directives)
 
     def visit_PyClassDefNode(self, node):
         directives = self._extract_directives(node, 'class')
-        if not directives:
-            return self.visit_Node(node)
-        body = Nodes.StatListNode(node.pos, stats=[node])
-        return self.visit_with_directives(body, directives)
+        return self.visit_with_directives(node, directives)
 
     def _extract_directives(self, node, scope_name):
         if not node.decorators:
@@ -973,7 +1014,8 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
         directives = []
         realdecs = []
         both = []
-        for dec in node.decorators:
+        # Decorators coming first take precedence.
+        for dec in node.decorators[::-1]:
             new_directives = self.try_to_parse_directives(dec.decorator)
             if new_directives is not None:
                 for directive in new_directives:
@@ -983,15 +1025,17 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
                             directives.append(directive)
                         if directive[0] == 'staticmethod':
                             both.append(dec)
+                    # Adapt scope type based on decorators that change it.
+                    if directive[0] == 'cclass' and scope_name == 'class':
+                        scope_name = 'cclass'
             else:
                 realdecs.append(dec)
-        if realdecs and isinstance(node, (Nodes.CFuncDefNode, Nodes.CClassDefNode, Nodes.CVarDefNode)):
+        if realdecs and (scope_name == 'cclass' or
+                         isinstance(node, (Nodes.CFuncDefNode, Nodes.CClassDefNode, Nodes.CVarDefNode))):
             raise PostParseError(realdecs[0].pos, "Cdef functions/classes cannot take arbitrary decorators.")
-        else:
-            node.decorators = realdecs + both
+        node.decorators = realdecs[::-1] + both[::-1]
         # merge or override repeated directives
         optdict = {}
-        directives.reverse() # Decorators coming first take precedence
         for directive in directives:
             name, value = directive
             if name in optdict:
@@ -1008,7 +1052,7 @@ class InterpretCompilerDirectives(CythonTransform, SkipDeclarations):
                 optdict[name] = value
         return optdict
 
-    # Handle with statements
+    # Handle with-statements
     def visit_WithStatNode(self, node):
         directive_dict = {}
         for directive in self.try_to_parse_directives(node.manager) or []:
@@ -1117,6 +1161,7 @@ class ParallelRangeTransform(CythonTransform, SkipDeclarations):
     def visit_CallNode(self, node):
         self.visit(node.function)
         if not self.parallel_directive:
+            self.visitchildren(node, exclude=('function',))
             return node
 
         # We are a parallel directive, replace this node with the
@@ -1238,7 +1283,7 @@ class WithTransform(CythonTransform, SkipDeclarations):
                                 pos, with_stat=node,
                                 test_if_run=False,
                                 args=excinfo_target,
-                                await=ExprNodes.AwaitExprNode(pos, arg=None) if is_async else None)),
+                                await_expr=ExprNodes.AwaitExprNode(pos, arg=None) if is_async else None)),
                         body=Nodes.ReraiseStatNode(pos),
                     ),
                 ],
@@ -1260,7 +1305,7 @@ class WithTransform(CythonTransform, SkipDeclarations):
                     test_if_run=True,
                     args=ExprNodes.TupleNode(
                         pos, args=[ExprNodes.NoneNode(pos) for _ in range(3)]),
-                    await=ExprNodes.AwaitExprNode(pos, arg=None) if is_async else None)),
+                    await_expr=ExprNodes.AwaitExprNode(pos, arg=None) if is_async else None)),
             handle_error_case=False,
         )
         return node
@@ -1271,41 +1316,138 @@ class WithTransform(CythonTransform, SkipDeclarations):
 
 
 class DecoratorTransform(ScopeTrackingTransform, SkipDeclarations):
-    """Originally, this was the only place where decorators were
-    transformed into the corresponding calling code.  Now, this is
-    done directly in DefNode and PyClassDefNode to avoid reassignments
-    to the function/class name - except for cdef class methods.  For
-    those, the reassignment is required as methods are originally
-    defined in the PyMethodDef struct.
-
-    The IndirectionNode allows DefNode to override the decorator
     """
+    Transforms method decorators in cdef classes into nested calls or properties.
 
-    def visit_DefNode(self, func_node):
+    Python-style decorator properties are transformed into a PropertyNode
+    with up to the three getter, setter and deleter DefNodes.
+    The functional style isn't supported yet.
+    """
+    _properties = None
+
+    _map_property_attribute = {
+        'getter': '__get__',
+        'setter': '__set__',
+        'deleter': '__del__',
+    }.get
+
+    def visit_CClassDefNode(self, node):
+        if self._properties is None:
+            self._properties = []
+        self._properties.append({})
+        super(DecoratorTransform, self).visit_CClassDefNode(node)
+        self._properties.pop()
+        return node
+
+    def visit_PropertyNode(self, node):
+        # Low-level warning for other code until we can convert all our uses over.
+        level = 2 if isinstance(node.pos[0], str) else 0
+        warning(node.pos, "'property %s:' syntax is deprecated, use '@property'" % node.name, level)
+        return node
+
+    def visit_DefNode(self, node):
         scope_type = self.scope_type
-        func_node = self.visit_FuncDefNode(func_node)
-        if scope_type != 'cclass' or not func_node.decorators:
-            return func_node
-        return self.handle_decorators(func_node, func_node.decorators,
-                                      func_node.name)
+        node = self.visit_FuncDefNode(node)
+        if scope_type != 'cclass' or not node.decorators:
+            return node
 
-    def handle_decorators(self, node, decorators, name):
-        decorator_result = ExprNodes.NameNode(node.pos, name = name)
+        # transform @property decorators
+        properties = self._properties[-1]
+        for decorator_node in node.decorators[::-1]:
+            decorator = decorator_node.decorator
+            if decorator.is_name and decorator.name == 'property':
+                if len(node.decorators) > 1:
+                    return self._reject_decorated_property(node, decorator_node)
+                name = node.name
+                node.name = EncodedString('__get__')
+                node.decorators.remove(decorator_node)
+                stat_list = [node]
+                if name in properties:
+                    prop = properties[name]
+                    prop.pos = node.pos
+                    prop.doc = node.doc
+                    prop.body.stats = stat_list
+                    return []
+                prop = Nodes.PropertyNode(node.pos, name=name)
+                prop.doc = node.doc
+                prop.body = Nodes.StatListNode(node.pos, stats=stat_list)
+                properties[name] = prop
+                return [prop]
+            elif decorator.is_attribute and decorator.obj.name in properties:
+                handler_name = self._map_property_attribute(decorator.attribute)
+                if handler_name:
+                    if decorator.obj.name != node.name:
+                        # CPython does not generate an error or warning, but not something useful either.
+                        error(decorator_node.pos,
+                              "Mismatching property names, expected '%s', got '%s'" % (
+                                  decorator.obj.name, node.name))
+                    elif len(node.decorators) > 1:
+                        return self._reject_decorated_property(node, decorator_node)
+                    else:
+                        return self._add_to_property(properties, node, handler_name, decorator_node)
+
+        # we clear node.decorators, so we need to set the
+        # is_staticmethod/is_classmethod attributes now
+        for decorator in node.decorators:
+            func = decorator.decorator
+            if func.is_name:
+                node.is_classmethod |= func.name == 'classmethod'
+                node.is_staticmethod |= func.name == 'staticmethod'
+
+        # transform normal decorators
+        decs = node.decorators
+        node.decorators = None
+        return self.chain_decorators(node, decs, node.name)
+
+    @staticmethod
+    def _reject_decorated_property(node, decorator_node):
+        # restrict transformation to outermost decorator as wrapped properties will probably not work
+        for deco in node.decorators:
+            if deco != decorator_node:
+                error(deco.pos, "Property methods with additional decorators are not supported")
+        return node
+
+    @staticmethod
+    def _add_to_property(properties, node, name, decorator):
+        prop = properties[node.name]
+        node.name = name
+        node.decorators.remove(decorator)
+        stats = prop.body.stats
+        for i, stat in enumerate(stats):
+            if stat.name == name:
+                stats[i] = node
+                break
+        else:
+            stats.append(node)
+        return []
+
+    @staticmethod
+    def chain_decorators(node, decorators, name):
+        """
+        Decorators are applied directly in DefNode and PyClassDefNode to avoid
+        reassignments to the function/class name - except for cdef class methods.
+        For those, the reassignment is required as methods are originally
+        defined in the PyMethodDef struct.
+
+        The IndirectionNode allows DefNode to override the decorator.
+        """
+        decorator_result = ExprNodes.NameNode(node.pos, name=name)
         for decorator in decorators[::-1]:
             decorator_result = ExprNodes.SimpleCallNode(
                 decorator.pos,
-                function = decorator.decorator,
-                args = [decorator_result])
+                function=decorator.decorator,
+                args=[decorator_result])
 
-        name_node = ExprNodes.NameNode(node.pos, name = name)
+        name_node = ExprNodes.NameNode(node.pos, name=name)
         reassignment = Nodes.SingleAssignmentNode(
             node.pos,
-            lhs = name_node,
-            rhs = decorator_result)
+            lhs=name_node,
+            rhs=decorator_result)
 
         reassignment = Nodes.IndirectionNode([reassignment])
         node.decorator_indirection = reassignment
         return [node, reassignment]
+
 
 class CnameDirectivesTransform(CythonTransform, SkipDeclarations):
     """
@@ -1340,7 +1482,7 @@ class CnameDirectivesTransform(CythonTransform, SkipDeclarations):
                     raise AssertionError(
                             "argument to cname decorator must be a string literal")
 
-                cname = args[0].compile_time_value(None).decode('UTF-8')
+                cname = args[0].compile_time_value(None)
                 del node.decorators[i]
                 node = Nodes.CnameDecoratorNode(pos=node.pos, node=node,
                                                 cname=cname)
@@ -1389,6 +1531,13 @@ class ForwardDeclareTypes(CythonTransform):
     def visit_CClassDefNode(self, node):
         if node.class_name not in self.module_scope.entries:
             node.declare(self.module_scope)
+        # Expand fused methods of .pxd declared types to construct the final vtable order.
+        type = self.module_scope.entries[node.class_name].type
+        if type is not None and type.is_extension_type and not type.is_builtin_type and type.scope:
+            scope = type.scope
+            for entry in scope.cfunc_entries:
+                if entry.type and entry.type.is_fused:
+                    entry.type.get_all_specialized_function_types()
         return node
 
 
@@ -1453,10 +1602,13 @@ if VALUE is not None:
         return node
 
     def visit_ModuleNode(self, node):
+        # Pickling support requires injecting module-level nodes.
+        self.extra_module_declarations = []
         self.seen_vars_stack.append(set())
         node.analyse_declarations(self.current_env())
         self.visitchildren(node)
         self.seen_vars_stack.pop()
+        node.body.stats.extend(self.extra_module_declarations)
         return node
 
     def visit_LambdaNode(self, node):
@@ -1478,7 +1630,144 @@ if VALUE is not None:
                     stats.append(property)
             if stats:
                 node.body.stats += stats
+            if (node.visibility != 'extern'
+                and not node.scope.lookup('__reduce__')
+                and not node.scope.lookup('__reduce_ex__')):
+                self._inject_pickle_methods(node)
         return node
+
+    def _inject_pickle_methods(self, node):
+        env = self.current_env()
+        if node.scope.directives['auto_pickle'] is False:   # None means attempt it.
+            # Old behavior of not doing anything.
+            return
+        auto_pickle_forced = node.scope.directives['auto_pickle'] is True
+
+        all_members = []
+        cls = node.entry.type
+        cinit = None
+        inherited_reduce = None
+        while cls is not None:
+            all_members.extend(e for e in cls.scope.var_entries if e.name not in ('__weakref__', '__dict__'))
+            cinit = cinit or cls.scope.lookup('__cinit__')
+            inherited_reduce = inherited_reduce or cls.scope.lookup('__reduce__') or cls.scope.lookup('__reduce_ex__')
+            cls = cls.base_type
+        all_members.sort(key=lambda e: e.name)
+
+        if inherited_reduce:
+            # This is not failsafe, as we may not know whether a cimported class defines a __reduce__.
+            # This is why we define __reduce_cython__ and only replace __reduce__
+            # (via ExtensionTypes.SetupReduce utility code) at runtime on class creation.
+            return
+
+        non_py = [
+            e for e in all_members
+            if not e.type.is_pyobject and (not e.type.can_coerce_to_pyobject(env)
+                                           or not e.type.can_coerce_from_pyobject(env))
+        ]
+
+        structs = [e for e in all_members if e.type.is_struct_or_union]
+
+        if cinit or non_py or (structs and not auto_pickle_forced):
+            if cinit:
+                # TODO(robertwb): We could allow this if __cinit__ has no require arguments.
+                msg = 'no default __reduce__ due to non-trivial __cinit__'
+            elif non_py:
+                msg = "%s cannot be converted to a Python object for pickling" % ','.join("self.%s" % e.name for e in non_py)
+            else:
+                # Extern structs may be only partially defined.
+                # TODO(robertwb): Limit the restriction to extern
+                # (and recursively extern-containing) structs.
+                msg = ("Pickling of struct members such as %s must be explicitly requested "
+                       "with @auto_pickle(True)" % ','.join("self.%s" % e.name for e in structs))
+
+            if auto_pickle_forced:
+                error(node.pos, msg)
+
+            pickle_func = TreeFragment(u"""
+                def __reduce_cython__(self):
+                    raise TypeError("%(msg)s")
+                def __setstate_cython__(self, __pyx_state):
+                    raise TypeError("%(msg)s")
+                """ % {'msg': msg},
+                level='c_class', pipeline=[NormalizeTree(None)]).substitute({})
+            pickle_func.analyse_declarations(node.scope)
+            self.visit(pickle_func)
+            node.body.stats.append(pickle_func)
+
+        else:
+            for e in all_members:
+                if not e.type.is_pyobject:
+                    e.type.create_to_py_utility_code(env)
+                    e.type.create_from_py_utility_code(env)
+            all_members_names = sorted([e.name for e in all_members])
+            checksum = '0x%s' % hashlib.md5(' '.join(all_members_names).encode('utf-8')).hexdigest()[:7]
+            unpickle_func_name = '__pyx_unpickle_%s' % node.class_name
+
+            # TODO(robertwb): Move the state into the third argument
+            # so it can be pickled *after* self is memoized.
+            unpickle_func = TreeFragment(u"""
+                def %(unpickle_func_name)s(__pyx_type, long __pyx_checksum, __pyx_state):
+                    cdef object __pyx_PickleError
+                    cdef object __pyx_result
+                    if __pyx_checksum != %(checksum)s:
+                        from pickle import PickleError as __pyx_PickleError
+                        raise __pyx_PickleError("Incompatible checksums (%%s vs %(checksum)s = (%(members)s))" %% __pyx_checksum)
+                    __pyx_result = %(class_name)s.__new__(__pyx_type)
+                    if __pyx_state is not None:
+                        %(unpickle_func_name)s__set_state(<%(class_name)s> __pyx_result, __pyx_state)
+                    return __pyx_result
+
+                cdef %(unpickle_func_name)s__set_state(%(class_name)s __pyx_result, tuple __pyx_state):
+                    %(assignments)s
+                    if len(__pyx_state) > %(num_members)d and hasattr(__pyx_result, '__dict__'):
+                        __pyx_result.__dict__.update(__pyx_state[%(num_members)d])
+                """ % {
+                    'unpickle_func_name': unpickle_func_name,
+                    'checksum': checksum,
+                    'members': ', '.join(all_members_names),
+                    'class_name': node.class_name,
+                    'assignments': '; '.join(
+                        '__pyx_result.%s = __pyx_state[%s]' % (v, ix)
+                        for ix, v in enumerate(all_members_names)),
+                    'num_members': len(all_members_names),
+                }, level='module', pipeline=[NormalizeTree(None)]).substitute({})
+            unpickle_func.analyse_declarations(node.entry.scope)
+            self.visit(unpickle_func)
+            self.extra_module_declarations.append(unpickle_func)
+
+            pickle_func = TreeFragment(u"""
+                def __reduce_cython__(self):
+                    cdef tuple state
+                    cdef object _dict
+                    cdef bint use_setstate
+                    state = (%(members)s)
+                    _dict = getattr(self, '__dict__', None)
+                    if _dict is not None:
+                        state += (_dict,)
+                        use_setstate = True
+                    else:
+                        use_setstate = %(any_notnone_members)s
+                    if use_setstate:
+                        return %(unpickle_func_name)s, (type(self), %(checksum)s, None), state
+                    else:
+                        return %(unpickle_func_name)s, (type(self), %(checksum)s, state)
+
+                def __setstate_cython__(self, __pyx_state):
+                    %(unpickle_func_name)s__set_state(self, __pyx_state)
+                """ % {
+                    'unpickle_func_name': unpickle_func_name,
+                    'checksum': checksum,
+                    'members': ', '.join('self.%s' % v for v in all_members_names) + (',' if len(all_members_names) == 1 else ''),
+                    # Even better, we could check PyType_IS_GC.
+                    'any_notnone_members' : ' or '.join(['self.%s is not None' % e.name for e in all_members if e.type.is_pyobject] or ['False']),
+                },
+                level='c_class', pipeline=[NormalizeTree(None)]).substitute({})
+            pickle_func.analyse_declarations(node.scope)
+            self.enter_scope(node, node.scope)  # functions should be visited in the class scope
+            self.visit(pickle_func)
+            self.exit_scope()
+            node.body.stats.append(pickle_func)
 
     def _handle_fused_def_decorators(self, old_decorators, env, node):
         """
@@ -1499,7 +1788,7 @@ if VALUE is not None:
         if decorators:
             transform = DecoratorTransform(self.context)
             def_node = node.node
-            _, reassignments = transform.handle_decorators(
+            _, reassignments = transform.chain_decorators(
                 def_node, decorators, def_node.name)
             reassignments.analyse_declarations(env)
             node = [node, reassignments]
@@ -1512,8 +1801,7 @@ if VALUE is not None:
         node.stats.insert(0, node.py_func)
         node.py_func = self.visit(node.py_func)
         node.update_fused_defnode_entry(env)
-        pycfunc = ExprNodes.PyCFunctionNode.from_defnode(node.py_func,
-                                                         True)
+        pycfunc = ExprNodes.PyCFunctionNode.from_defnode(node.py_func, binding=True)
         pycfunc = ExprNodes.ProxyNode(pycfunc.coerce_to_temp(env))
         node.resulting_fused_function = pycfunc
         # Create assignment node for our def function
@@ -1580,7 +1868,7 @@ if VALUE is not None:
 
     def visit_FuncDefNode(self, node):
         """
-        Analyse a function and its body, as that hasn't happend yet.  Also
+        Analyse a function and its body, as that hasn't happened yet.  Also
         analyse the directive_locals set by @cython.locals().
 
         Then, if we are a function with fused arguments, replace the function
@@ -1617,6 +1905,8 @@ if VALUE is not None:
     def visit_DefNode(self, node):
         node = self.visit_FuncDefNode(node)
         env = self.current_env()
+        if isinstance(node, Nodes.DefNode) and node.is_wrapper:
+            env = env.parent_scope
         if (not isinstance(node, Nodes.DefNode) or
                 node.fused_py_func or node.is_generator_body or
                 not node.needs_assignment_synthesis(env)):
@@ -1641,6 +1931,8 @@ if VALUE is not None:
             binding = self.current_directives.get('binding')
             rhs = ExprNodes.PyCFunctionNode.from_defnode(node, binding)
             node.code_object = rhs.code_object
+            if node.is_generator:
+                node.gbody.code_object = node.code_object
 
         if env.is_py_class_scope:
             rhs.binding = True
@@ -1767,7 +2059,7 @@ if VALUE is not None:
 
     # Some nodes are no longer needed after declaration
     # analysis and can be dropped. The analysis was performed
-    # on these nodes in a seperate recursive process from the
+    # on these nodes in a separate recursive process from the
     # enclosing function or module, so we can simply drop them.
     def visit_CDeclaratorNode(self, node):
         # necessary to ensure that all CNameDeclaratorNodes are visited.
@@ -1869,13 +2161,28 @@ class CalculateQualifiedNamesTransform(EnvTransform):
         return node
 
     def visit_PyCFunctionNode(self, node):
-        self._set_qualname(node, node.def_node.name)
+        orig_qualified_name = self.qualified_name[:]
+        if node.def_node.is_wrapper and self.qualified_name and self.qualified_name[-1] == '<locals>':
+            self.qualified_name.pop()
+            self._set_qualname(node)
+        else:
+            self._set_qualname(node, node.def_node.name)
         self.visitchildren(node)
+        self.qualified_name = orig_qualified_name
         return node
 
     def visit_DefNode(self, node):
-        self._set_qualname(node, node.name)
-        return self.visit_FuncDefNode(node)
+        if node.is_wrapper and self.qualified_name:
+            assert self.qualified_name[-1] == '<locals>', self.qualified_name
+            orig_qualified_name = self.qualified_name[:]
+            self.qualified_name.pop()
+            self._set_qualname(node)
+            self._super_visit_FuncDefNode(node)
+            self.qualified_name = orig_qualified_name
+        else:
+            self._set_qualname(node, node.name)
+            self.visit_FuncDefNode(node)
+        return node
 
     def visit_FuncDefNode(self, node):
         orig_qualified_name = self.qualified_name[:]
@@ -1931,13 +2238,8 @@ class AnalyseExpressionsTransform(CythonTransform):
         re-analyse the types.
         """
         self.visit_Node(node)
-
         if node.is_fused_index and not node.type.is_error:
             node = node.base
-        elif node.memslice_ellipsis_noop:
-            # memoryviewslice[...] expression, drop the IndexNode
-            node = node.base
-
         return node
 
 
@@ -1971,26 +2273,26 @@ class ExpandInplaceOperators(EnvTransform):
         if lhs.type.is_cpp_class:
             # No getting around this exact operator here.
             return node
-        if isinstance(lhs, ExprNodes.IndexNode) and lhs.is_buffer_access:
-            # There is code to handle this case.
+        if isinstance(lhs, ExprNodes.BufferIndexNode):
+            # There is code to handle this case in InPlaceAssignmentNode
             return node
 
         env = self.current_env()
         def side_effect_free_reference(node, setting=False):
-            if isinstance(node, ExprNodes.NameNode):
+            if node.is_name:
                 return node, []
             elif node.type.is_pyobject and not setting:
                 node = LetRefNode(node)
                 return node, [node]
-            elif isinstance(node, ExprNodes.IndexNode):
-                if node.is_buffer_access:
-                    raise ValueError("Buffer access")
+            elif node.is_subscript:
                 base, temps = side_effect_free_reference(node.base)
                 index = LetRefNode(node.index)
                 return ExprNodes.IndexNode(node.pos, base=base, index=index), temps + [index]
-            elif isinstance(node, ExprNodes.AttributeNode):
+            elif node.is_attribute:
                 obj, temps = side_effect_free_reference(node.obj)
                 return ExprNodes.AttributeNode(node.pos, obj=obj, attribute=node.attribute), temps
+            elif isinstance(node, ExprNodes.BufferIndexNode):
+                raise ValueError("Don't allow things like attributes of buffer indexing operations")
             else:
                 node = LetRefNode(node)
                 return node, [node]
@@ -2031,6 +2333,7 @@ class AdjustDefByDirectives(CythonTransform, SkipDeclarations):
     @cython.cclass
     @cython.ccall
     @cython.inline
+    @cython.nogil
     """
 
     def visit_ModuleNode(self, node):
@@ -2050,20 +2353,40 @@ class AdjustDefByDirectives(CythonTransform, SkipDeclarations):
         modifiers = []
         if 'inline' in self.directives:
             modifiers.append('inline')
+        nogil = self.directives.get('nogil')
+        except_val = self.directives.get('exceptval')
+        return_type_node = self.directives.get('returns')
+        if return_type_node is None and self.directives['annotation_typing']:
+            return_type_node = node.return_type_annotation
+            # for Python anntations, prefer safe exception handling by default
+            if return_type_node is not None and except_val is None:
+                except_val = (None, True)  # except *
+        elif except_val is None:
+            # backward compatible default: no exception check
+            except_val = (None, False)
         if 'ccall' in self.directives:
             node = node.as_cfunction(
-                overridable=True, returns=self.directives.get('returns'), modifiers=modifiers)
+                overridable=True, modifiers=modifiers, nogil=nogil,
+                returns=return_type_node, except_val=except_val)
             return self.visit(node)
         if 'cfunc' in self.directives:
             if self.in_py_class:
                 error(node.pos, "cfunc directive is not allowed here")
             else:
                 node = node.as_cfunction(
-                    overridable=False, returns=self.directives.get('returns'), modifiers=modifiers)
+                    overridable=False, modifiers=modifiers, nogil=nogil,
+                    returns=return_type_node, except_val=except_val)
                 return self.visit(node)
         if 'inline' in modifiers:
             error(node.pos, "Python functions cannot be declared 'inline'")
+        if nogil:
+            # TODO: turn this into a "with gil" declaration.
+            error(node.pos, "Python functions cannot be declared 'nogil'")
         self.visitchildren(node)
+        return node
+
+    def visit_LambdaNode(self, node):
+        # No directives should modify lambdas or generator expressions (and also nothing in them).
         return node
 
     def visit_PyClassDefNode(self, node):
@@ -2114,6 +2437,8 @@ class AlignFunctionDefinitions(CythonTransform):
         if pxd_def is None:
             pxd_def = self.scope.lookup(node.class_name)
         if pxd_def:
+            if not pxd_def.defined_in_pxd:
+                return node
             outer_scope = self.scope
             self.scope = pxd_def.type.scope
         self.visitchildren(node)
@@ -2193,25 +2518,36 @@ class RemoveUnreachableCode(CythonTransform):
             node.else_clause = None
         return node
 
+    def visit_TryFinallyStatNode(self, node):
+        self.visitchildren(node)
+        if node.finally_clause.is_terminator:
+            node.is_terminator = True
+        return node
+
 
 class YieldNodeCollector(TreeVisitor):
 
     def __init__(self):
         super(YieldNodeCollector, self).__init__()
         self.yields = []
-        self.awaits = []
         self.returns = []
+        self.finallys = []
+        self.excepts = []
         self.has_return_value = False
+        self.has_yield = False
+        self.has_await = False
 
     def visit_Node(self, node):
         self.visitchildren(node)
 
     def visit_YieldExprNode(self, node):
         self.yields.append(node)
+        self.has_yield = True
         self.visitchildren(node)
 
     def visit_AwaitExprNode(self, node):
-        self.awaits.append(node)
+        self.yields.append(node)
+        self.has_await = True
         self.visitchildren(node)
 
     def visit_ReturnStatNode(self, node):
@@ -2219,6 +2555,14 @@ class YieldNodeCollector(TreeVisitor):
         if node.value:
             self.has_return_value = True
         self.returns.append(node)
+
+    def visit_TryFinallyStatNode(self, node):
+        self.visitchildren(node)
+        self.finallys.append(node)
+
+    def visit_TryExceptStatNode(self, node):
+        self.visitchildren(node)
+        self.excepts.append(node)
 
     def visit_ClassDefNode(self, node):
         pass
@@ -2255,28 +2599,36 @@ class MarkClosureVisitor(CythonTransform):
         collector.visitchildren(node)
 
         if node.is_async_def:
-            if collector.yields:
-                error(collector.yields[0].pos, "'yield' not allowed in async coroutines (use 'await')")
-            yields = collector.awaits
-        elif collector.yields:
-            if collector.awaits:
-                error(collector.yields[0].pos, "'await' not allowed in generators (use 'yield')")
-            yields = collector.yields
+            coroutine_type = Nodes.AsyncDefNode
+            if collector.has_yield:
+                coroutine_type = Nodes.AsyncGenNode
+                for yield_expr in collector.yields + collector.returns:
+                    yield_expr.in_async_gen = True
+            elif self.current_directives['iterable_coroutine']:
+                coroutine_type = Nodes.IterableAsyncDefNode
+        elif collector.has_await:
+            found = next(y for y in collector.yields if y.is_await)
+            error(found.pos, "'await' not allowed in generators (use 'yield')")
+            return node
+        elif collector.has_yield:
+            coroutine_type = Nodes.GeneratorDefNode
         else:
             return node
 
-        for i, yield_expr in enumerate(yields, 1):
+        for i, yield_expr in enumerate(collector.yields, 1):
             yield_expr.label_num = i
-        for retnode in collector.returns:
+        for retnode in collector.returns + collector.finallys + collector.excepts:
             retnode.in_generator = True
 
         gbody = Nodes.GeneratorBodyDefNode(
-            pos=node.pos, name=node.name, body=node.body)
-        coroutine = (Nodes.AsyncDefNode if node.is_async_def else Nodes.GeneratorDefNode)(
+            pos=node.pos, name=node.name, body=node.body,
+            is_async_gen_body=node.is_async_def and collector.has_yield)
+        coroutine = coroutine_type(
             pos=node.pos, name=node.name, args=node.args,
             star_arg=node.star_arg, starstar_arg=node.starstar_arg,
             doc=node.doc, decorators=node.decorators,
-            gbody=gbody, lambda_name=node.lambda_name)
+            gbody=gbody, lambda_name=node.lambda_name,
+            return_type_annotation=node.return_type_annotation)
         return coroutine
 
     def visit_CFuncDefNode(self, node):
@@ -2318,24 +2670,28 @@ class CreateClosureClasses(CythonTransform):
     def find_entries_used_in_closures(self, node):
         from_closure = []
         in_closure = []
-        for name, entry in node.local_scope.entries.items():
-            if entry.from_closure:
-                from_closure.append((name, entry))
-            elif entry.in_closure:
-                in_closure.append((name, entry))
+        for scope in node.local_scope.iter_local_scopes():
+            for name, entry in scope.entries.items():
+                if not name:
+                    continue
+                if entry.from_closure:
+                    from_closure.append((name, entry))
+                elif entry.in_closure:
+                    in_closure.append((name, entry))
         return from_closure, in_closure
 
     def create_class_from_scope(self, node, target_module_scope, inner_node=None):
         # move local variables into closure
         if node.is_generator:
-            for entry in node.local_scope.entries.values():
-                if not entry.from_closure:
-                    entry.in_closure = True
+            for scope in node.local_scope.iter_local_scopes():
+                for entry in scope.entries.values():
+                    if not (entry.from_closure or entry.is_pyglobal or entry.is_cglobal):
+                        entry.in_closure = True
 
         from_closure, in_closure = self.find_entries_used_in_closures(node)
         in_closure.sort()
 
-        # Now from the begining
+        # Now from the beginning
         node.needs_closure = False
         node.needs_outer_scope = False
 
@@ -2362,9 +2718,12 @@ class CreateClosureClasses(CythonTransform):
             node.needs_outer_scope = True
             return
 
+        # entry.cname can contain periods (eg. a derived C method of a class).
+        # We want to use the cname as part of a C struct name, so we replace
+        # periods with double underscores.
         as_name = '%s_%s' % (
             target_module_scope.next_id(Naming.closure_class_prefix),
-            node.entry.cname)
+            node.entry.cname.replace('.','__'))
 
         entry = target_module_scope.declare_c_class(
             name=as_name, pos=node.pos, defining=True,
@@ -2374,6 +2733,10 @@ class CreateClosureClasses(CythonTransform):
         func_scope.scope_class = entry
         class_scope = entry.type.scope
         class_scope.is_internal = True
+        class_scope.is_closure_class_scope = True
+        if node.is_async_def or node.is_generator:
+            # Generators need their closure intact during cleanup as they resume to handle GeneratorExit
+            class_scope.directives['no_gc_clear'] = True
         if Options.closure_freelist_size:
             class_scope.directives['freelist'] = Options.closure_freelist_size
 
@@ -2386,11 +2749,12 @@ class CreateClosureClasses(CythonTransform):
                                     is_cdef=True)
             node.needs_outer_scope = True
         for name, entry in in_closure:
-            closure_entry = class_scope.declare_var(pos=entry.pos,
-                                    name=entry.name,
-                                    cname=entry.cname,
-                                    type=entry.type,
-                                    is_cdef=True)
+            closure_entry = class_scope.declare_var(
+                pos=entry.pos,
+                name=entry.name if not entry.in_subscope else None,
+                cname=entry.cname,
+                type=entry.type,
+                is_cdef=True)
             if entry.is_declared_generic:
                 closure_entry.is_declared_generic = 1
         node.needs_closure = True
@@ -2432,6 +2796,60 @@ class CreateClosureClasses(CythonTransform):
             return node
 
 
+class InjectGilHandling(VisitorTransform, SkipDeclarations):
+    """
+    Allow certain Python operations inside of nogil blocks by implicitly acquiring the GIL.
+
+    Must run before the AnalyseDeclarationsTransform to make sure the GILStatNodes get
+    set up, parallel sections know that the GIL is acquired inside of them, etc.
+    """
+    def __call__(self, root):
+        self.nogil = False
+        return super(InjectGilHandling, self).__call__(root)
+
+    # special node handling
+
+    def visit_RaiseStatNode(self, node):
+        """Allow raising exceptions in nogil sections by wrapping them in a 'with gil' block."""
+        if self.nogil:
+            node = Nodes.GILStatNode(node.pos, state='gil', body=node)
+        return node
+
+    # further candidates:
+    # def visit_AssertStatNode(self, node):
+    # def visit_ReraiseStatNode(self, node):
+
+    # nogil tracking
+
+    def visit_GILStatNode(self, node):
+        was_nogil = self.nogil
+        self.nogil = (node.state == 'nogil')
+        self.visitchildren(node)
+        self.nogil = was_nogil
+        return node
+
+    def visit_CFuncDefNode(self, node):
+        was_nogil = self.nogil
+        if isinstance(node.declarator, Nodes.CFuncDeclaratorNode):
+            self.nogil = node.declarator.nogil and not node.declarator.with_gil
+        self.visitchildren(node)
+        self.nogil = was_nogil
+        return node
+
+    def visit_ParallelRangeNode(self, node):
+        was_nogil = self.nogil
+        self.nogil = node.nogil
+        self.visitchildren(node)
+        self.nogil = was_nogil
+        return node
+
+    def visit_ExprNode(self, node):
+        # No special GIL handling inside of expressions for now.
+        return node
+
+    visit_Node = VisitorTransform.recurse_to_children
+
+
 class GilCheck(VisitorTransform):
     """
     Call `node.gil_check(env)` on each node to make sure we hold the
@@ -2451,24 +2869,33 @@ class GilCheck(VisitorTransform):
         self.nogil_declarator_only = False
         return super(GilCheck, self).__call__(root)
 
+    def _visit_scoped_children(self, node, gil_state):
+        was_nogil = self.nogil
+        outer_attrs = node.outer_attrs
+        if outer_attrs and len(self.env_stack) > 1:
+            self.nogil = self.env_stack[-2].nogil
+            self.visitchildren(node, outer_attrs)
+
+        self.nogil = gil_state
+        self.visitchildren(node, exclude=outer_attrs)
+        self.nogil = was_nogil
+
     def visit_FuncDefNode(self, node):
         self.env_stack.append(node.local_scope)
-        was_nogil = self.nogil
-        self.nogil = node.local_scope.nogil
+        inner_nogil = node.local_scope.nogil
 
-        if self.nogil:
+        if inner_nogil:
             self.nogil_declarator_only = True
 
-        if self.nogil and node.nogil_check:
+        if inner_nogil and node.nogil_check:
             node.nogil_check(node.local_scope)
 
-        self.visitchildren(node)
+        self._visit_scoped_children(node, inner_nogil)
 
         # This cannot be nested, so it doesn't need backup/restore
         self.nogil_declarator_only = False
 
         self.env_stack.pop()
-        self.nogil = was_nogil
         return node
 
     def visit_GILStatNode(self, node):
@@ -2476,9 +2903,9 @@ class GilCheck(VisitorTransform):
             node.nogil_check()
 
         was_nogil = self.nogil
-        self.nogil = (node.state == 'nogil')
+        is_nogil = (node.state == 'nogil')
 
-        if was_nogil == self.nogil and not self.nogil_declarator_only:
+        if was_nogil == is_nogil and not self.nogil_declarator_only:
             if not was_nogil:
                 error(node.pos, "Trying to acquire the GIL while it is "
                                 "already held.")
@@ -2491,8 +2918,7 @@ class GilCheck(VisitorTransform):
             # which is wrapped in a StatListNode. Just unpack that.
             node.finally_clause, = node.finally_clause.stats
 
-        self.visitchildren(node)
-        self.nogil = was_nogil
+        self._visit_scoped_children(node, is_nogil)
         return node
 
     def visit_ParallelRangeNode(self, node):
@@ -2539,8 +2965,12 @@ class GilCheck(VisitorTransform):
     def visit_Node(self, node):
         if self.env_stack and self.nogil and node.nogil_check:
             node.nogil_check(self.env_stack[-1])
-        self.visitchildren(node)
-        node.in_nogil_context = self.nogil
+        if node.outer_attrs:
+            self._visit_scoped_children(node, self.nogil)
+        else:
+            self.visitchildren(node)
+        if self.nogil:
+            node.in_nogil_context = True
         return node
 
 
@@ -2707,11 +3137,13 @@ class TransformBuiltinMethods(EnvTransform):
                         node.function.pos, operand1=node.args[0], operand2=node.args[1])
             elif function == u'cast':
                 if len(node.args) != 2:
-                    error(node.function.pos, u"cast() takes exactly two arguments")
+                    error(node.function.pos,
+                          u"cast() takes exactly two arguments and an optional typecheck keyword")
                 else:
                     type = node.args[0].analyse_as_type(self.current_env())
                     if type:
-                        node = ExprNodes.TypecastNode(node.function.pos, type=type, operand=node.args[1])
+                        node = ExprNodes.TypecastNode(
+                            node.function.pos, type=type, operand=node.args[1], typecheck=False)
                     else:
                         error(node.args[0].pos, "Not a type")
             elif function == u'sizeof':
@@ -2757,6 +3189,28 @@ class TransformBuiltinMethods(EnvTransform):
                 return self._inject_super(node, func_name)
         return node
 
+    def visit_GeneralCallNode(self, node):
+        function = node.function.as_cython_attribute()
+        if function == u'cast':
+            # NOTE: assuming simple tuple/dict nodes for positional_args and keyword_args
+            args = node.positional_args.args
+            kwargs = node.keyword_args.compile_time_value(None)
+            if (len(args) != 2 or len(kwargs) > 1 or
+                    (len(kwargs) == 1 and 'typecheck' not in kwargs)):
+                error(node.function.pos,
+                      u"cast() takes exactly two arguments and an optional typecheck keyword")
+            else:
+                type = args[0].analyse_as_type(self.current_env())
+                if type:
+                    typecheck = kwargs.get('typecheck', False)
+                    node = ExprNodes.TypecastNode(
+                        node.function.pos, type=type, operand=args[1], typecheck=typecheck)
+                else:
+                    error(args[0].pos, "Not a type")
+
+        self.visitchildren(node)
+        return node
+
 
 class ReplaceFusedTypeChecks(VisitorTransform):
     """
@@ -2785,8 +3239,9 @@ class ReplaceFusedTypeChecks(VisitorTransform):
         return self.transform(node)
 
     def visit_PrimaryCmpNode(self, node):
-        type1 = node.operand1.analyse_as_type(self.local_scope)
-        type2 = node.operand2.analyse_as_type(self.local_scope)
+        with Errors.local_errors(ignore=True):
+          type1 = node.operand1.analyse_as_type(self.local_scope)
+          type2 = node.operand2.analyse_as_type(self.local_scope)
 
         if type1 and type2:
             false_node = ExprNodes.BoolNode(node.pos, value=False)

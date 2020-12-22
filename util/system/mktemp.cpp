@@ -53,7 +53,7 @@ static char* makeTempName(const char* wrkDir, const char* prefix) {
     if (wrkDir && *wrkDir)
         strcpy(buf, wrkDir);
     else
-        strcpy(buf, ~sysTmp);
+        strcpy(buf, sysTmp.data());
 
     if (buf[strlen(buf) - 1] != '/')
         strcat(buf, "/");
@@ -89,7 +89,7 @@ TString MakeTempName(const char* wrkDir, const char* prefix) {
     TArrayHolder<char> ret(makeTempName(wrkDir, prefix));
 
     if (!ret) {
-        ythrow yexception() << "can not create temp name(" << wrkDir << ", " << prefix << ")";
+        ythrow TSystemError() << "can not create temp name(" << wrkDir << ", " << prefix << ")";
     }
 
     return ret.Get();

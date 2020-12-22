@@ -1,9 +1,11 @@
 #include "escape.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/generic/string.h>
 #include <util/charset/wide.h>
+
+using namespace std::string_view_literals;
 
 namespace {
     struct TExample {
@@ -19,33 +21,28 @@ namespace {
 
 static const TExample CommonTestData[] = {
     // Should be valid UTF-8.
-    {STRINGBUF("http://ya.ru/"), STRINGBUF("http://ya.ru/")},
-    {STRINGBUF("http://ya.ru/\\x17\\n"), STRINGBUF("http://ya.ru/\x17\n")},
+    {"http://ya.ru/", "http://ya.ru/"},
+    {"http://ya.ru/\\x17\\n", "http://ya.ru/\x17\n"},
 
-    {STRINGBUF("http://ya.ru/\\0"), STRINGBUF("http://ya.ru/\0")},
-    {STRINGBUF("http://ya.ru/\\0\\0"), STRINGBUF("http://ya.ru/\0\0")},
-    {STRINGBUF("http://ya.ru/\\0\\0000"), STRINGBUF("http://ya.ru/\0\0"
-                                                    "0")},
-    {STRINGBUF("http://ya.ru/\\0\\0001"), STRINGBUF("http://ya.ru/\0\x00"
-                                                    "1")},
+    {"http://ya.ru/\\0", "http://ya.ru/\0"sv},
+    {"http://ya.ru/\\0\\0", "http://ya.ru/\0\0"sv},
+    {"http://ya.ru/\\0\\0000", "http://ya.ru/\0\0" "0"sv},
+    {"http://ya.ru/\\0\\0001", "http://ya.ru/\0\x00" "1"sv},
 
-    {STRINGBUF("\\2\\4\\00678"), STRINGBUF("\2\4\6"
-                                           "78")}, // \6 -> \006 because next char '7' is "octal"
-    {STRINGBUF("\\2\\4\\689"),
-     STRINGBUF("\2\4\6"
-               "89")}, // \6 -> \6 because next char '8' is not "octal"
+    {R"(\2\4\00678)", "\2\4\6" "78"sv}, // \6 -> \006 because next char '7' is "octal"
+    {R"(\2\4\689)", "\2\4\6" "89"sv}, // \6 -> \6 because next char '8' is not "octal"
 
-    {STRINGBUF("\\\"Hello\\\", Alice said."), STRINGBUF("\"Hello\", Alice said.")},
-    {STRINGBUF("Slash\\\\dash!"), STRINGBUF("Slash\\dash!")},
-    {STRINGBUF("There\\nare\\r\\nnewlines."), STRINGBUF("There\nare\r\nnewlines.")},
-    {STRINGBUF("There\\tare\\ttabs."), STRINGBUF("There\tare\ttabs.")},
+    {R"(\"Hello\", Alice said.)", "\"Hello\", Alice said."},
+    {"Slash\\\\dash!", "Slash\\dash!"},
+    {R"(There\nare\r\nnewlines.)", "There\nare\r\nnewlines."},
+    {"There\\tare\\ttabs.", "There\tare\ttabs."},
 
-    {STRINGBUF("There are questions \\x3F\\x3F?"), STRINGBUF("There are questions ???")},
-    {STRINGBUF("There are questions \\x3F?"), STRINGBUF("There are questions ??")},
+    {"There are questions \\x3F\\x3F?", "There are questions ???"},
+    {"There are questions \\x3F?", "There are questions ??"},
 };
 
-SIMPLE_UNIT_TEST_SUITE(TEscapeCTest) {
-    SIMPLE_UNIT_TEST(TestStrokaEscapeC) {
+Y_UNIT_TEST_SUITE(TEscapeCTest) {
+    Y_UNIT_TEST(TestStrokaEscapeC) {
         for (const auto& e : CommonTestData) {
             TString expected(e.Expected);
             TString source(e.Source);
@@ -77,7 +74,7 @@ SIMPLE_UNIT_TEST_SUITE(TEscapeCTest) {
         UNIT_ASSERT_VALUES_EQUAL("Странный компроматтест", UnescapeC(TString("\\u0421\\u0442\\u0440\\u0430\\u043d\\u043d\\u044b\\u0439 \\u043a\\u043e\\u043c\\u043f\\u0440\\u043e\\u043c\\u0430\\u0442тест")));
     }
 
-    SIMPLE_UNIT_TEST(TestWtrokaEscapeC) {
+    Y_UNIT_TEST(TestWtrokaEscapeC) {
         for (const auto& e : CommonTestData) {
             TUtf16String expected(UTF8ToWide(e.Expected));
             TUtf16String source(UTF8ToWide(e.Source));
@@ -88,12 +85,12 @@ SIMPLE_UNIT_TEST_SUITE(TEscapeCTest) {
             UNIT_ASSERT_VALUES_EQUAL(source, actual2);
         }
 
-        UNIT_ASSERT_VALUES_EQUAL(UTF8ToWide("http://ya.ru/\\x17\\n\\u1234"), EscapeC(UTF8ToWide("http://ya.ru/\x17\n") + wchar16(0x1234)));
-        UNIT_ASSERT_VALUES_EQUAL(ASCIIToWide("h"), EscapeC(wchar16('h')));
-        UNIT_ASSERT_VALUES_EQUAL(UTF8ToWide("\\xFF"), EscapeC(wchar16(255)));
+        UNIT_ASSERT_VALUES_EQUAL(u"http://ya.ru/\\x17\\n\\u1234", EscapeC(u"http://ya.ru/\x17\n\u1234"));
+        UNIT_ASSERT_VALUES_EQUAL(u"h", EscapeC(u'h'));
+        UNIT_ASSERT_VALUES_EQUAL(u"\\xFF", EscapeC(wchar16(255)));
     }
 
-    SIMPLE_UNIT_TEST(TestEscapeTrigraphs) {
+    Y_UNIT_TEST(TestEscapeTrigraphs) {
         UNIT_ASSERT_VALUES_EQUAL("?", EscapeC(TString("?")));
         UNIT_ASSERT_VALUES_EQUAL("\\x3F?", EscapeC(TString("??")));
         UNIT_ASSERT_VALUES_EQUAL("\\x3F\\x3F?", EscapeC(TString("???")));
@@ -102,7 +99,7 @@ SIMPLE_UNIT_TEST_SUITE(TEscapeCTest) {
         UNIT_ASSERT_VALUES_EQUAL("\\x3F?x\\x3F\\x3F?z", EscapeC(TString("??x???z")));
     }
 
-    SIMPLE_UNIT_TEST(TestUnescapeCCharLen) {
+    Y_UNIT_TEST(TestUnescapeCCharLen) {
         auto test = [](const char* str, size_t len) {
             UNIT_ASSERT_EQUAL(UnescapeCCharLen(str, str + strlen(str)), len);
         };
@@ -129,13 +126,18 @@ SIMPLE_UNIT_TEST_SUITE(TEscapeCTest) {
         test("\\4xxx", 2);
     }
 
-    SIMPLE_UNIT_TEST(TestUnbounded) {
+    Y_UNIT_TEST(TestUnbounded) {
         char buf[100000];
 
         for (const auto& x : CommonTestData) {
-            char* end = UnescapeC(~x.Expected, +x.Expected, buf);
+            char* end = UnescapeC(x.Expected.data(), x.Expected.size(), buf);
 
             UNIT_ASSERT_VALUES_EQUAL(x.Source, TStringBuf(buf, end));
         }
+    }
+
+    Y_UNIT_TEST(TestCapitalUEscapes) {
+        UNIT_ASSERT_VALUES_EQUAL(UnescapeC("\\U00000020"), " ");
+        UNIT_ASSERT_VALUES_EQUAL(UnescapeC("\\Uxxx"), "Uxxx");
     }
 }

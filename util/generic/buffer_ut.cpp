@@ -1,12 +1,12 @@
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/system/datetime.h>
 #include "string.h"
 #include "vector.h"
 #include "buffer.h"
 
-SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
-    SIMPLE_UNIT_TEST(TestEraseBack) {
+Y_UNIT_TEST_SUITE(TBufferTest) {
+    Y_UNIT_TEST(TestEraseBack) {
         TBuffer buf;
 
         buf.Append("1234567", 7);
@@ -14,10 +14,10 @@ SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
         buf.Resize(6);
         buf.EraseBack(2);
 
-        UNIT_ASSERT_EQUAL(TString(~buf, +buf), "1234");
+        UNIT_ASSERT_EQUAL(TString(buf.data(), buf.size()), "1234");
     }
 
-    SIMPLE_UNIT_TEST(TestAppend) {
+    Y_UNIT_TEST(TestAppend) {
         const char data[] = "1234567890qwertyuiop";
 
         TBuffer buf(13);
@@ -32,10 +32,10 @@ SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
             }
         }
 
-        UNIT_ASSERT_EQUAL(TString(~buf, +buf), str);
+        UNIT_ASSERT_EQUAL(TString(buf.data(), buf.size()), str);
     }
 
-    SIMPLE_UNIT_TEST(TestReset) {
+    Y_UNIT_TEST(TestReset) {
         char content[] = "some text";
         TBuffer buf;
 
@@ -50,25 +50,25 @@ SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
         UNIT_ASSERT_EQUAL(buf.Capacity(), 0);
     }
 
-    SIMPLE_UNIT_TEST(TestResize) {
+    Y_UNIT_TEST(TestResize) {
         char content[] = "some text";
         TBuffer buf;
 
         buf.Resize(10);
-        UNIT_ASSERT_VALUES_EQUAL(+buf, 10u);
+        UNIT_ASSERT_VALUES_EQUAL(buf.size(), 10u);
 
         buf.Resize(0);
-        UNIT_ASSERT_VALUES_EQUAL(+buf, 0u);
+        UNIT_ASSERT_VALUES_EQUAL(buf.size(), 0u);
 
         buf.Resize(9);
-        memcpy(~buf, content, 9);
-        UNIT_ASSERT_VALUES_EQUAL(TString(~buf, +buf), "some text");
+        memcpy(buf.data(), content, 9);
+        UNIT_ASSERT_VALUES_EQUAL(TString(buf.data(), buf.size()), "some text");
 
         buf.Resize(4);
-        UNIT_ASSERT_VALUES_EQUAL(TString(~buf, +buf), "some");
+        UNIT_ASSERT_VALUES_EQUAL(TString(buf.data(), buf.size()), "some");
     }
 
-    SIMPLE_UNIT_TEST(TestReserve) {
+    Y_UNIT_TEST(TestReserve) {
         TBuffer buf;
         UNIT_ASSERT_EQUAL(buf.Capacity(), 0);
 
@@ -92,27 +92,27 @@ SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
         buf.Append('a');
         UNIT_ASSERT_EQUAL(buf.Capacity(), 256);
         TString tmp1 = "abcdef";
-        buf.Append(~tmp1, +tmp1);
+        buf.Append(tmp1.data(), tmp1.size());
         UNIT_ASSERT_EQUAL(buf.Capacity(), 256);
 
         TString tmp2 = "30498290sfokdsflj2308w";
         buf.Resize(1020);
-        buf.Append(~tmp2, +tmp2);
+        buf.Append(tmp2.data(), tmp2.size());
         UNIT_ASSERT_EQUAL(buf.Capacity(), 2048);
     }
 
-    SIMPLE_UNIT_TEST(TestShrinkToFit) {
+    Y_UNIT_TEST(TestShrinkToFit) {
         TBuffer buf;
 
         TString content = "some text";
-        buf.Append(~content, +content);
+        buf.Append(content.data(), content.size());
         UNIT_ASSERT_EQUAL(buf.Size(), 9);
         UNIT_ASSERT_EQUAL(buf.Capacity(), 16);
 
         buf.ShrinkToFit();
         UNIT_ASSERT_EQUAL(buf.Size(), 9);
         UNIT_ASSERT_EQUAL(buf.Capacity(), 9);
-        UNIT_ASSERT_EQUAL(TString(~buf, +buf), content);
+        UNIT_ASSERT_EQUAL(TString(buf.data(), buf.size()), content);
 
         const size_t MB = 1024 * 1024;
         buf.Resize(MB);
@@ -126,7 +126,7 @@ SIMPLE_UNIT_TEST_SUITE(TBufferTest) {
     }
 
 #if 0
-SIMPLE_UNIT_TEST(TestAlignUp) {
+Y_UNIT_TEST(TestAlignUp) {
     char content[] = "some text";
     TBuffer buf;
 
@@ -145,7 +145,7 @@ SIMPLE_UNIT_TEST(TestAlignUp) {
 #endif
 
 #if 0
-SIMPLE_UNIT_TEST(TestSpeed) {
+Y_UNIT_TEST(TestSpeed) {
     const char data[] = "1234567890qwertyuiop";
     const size_t c = 100000;
     ui64 t1 = 0;
@@ -164,7 +164,7 @@ SIMPLE_UNIT_TEST(TestSpeed) {
     }
 
     {
-        yvector<char> buf;
+        TVector<char> buf;
 
         t2 = MicroSeconds();
 
@@ -179,15 +179,27 @@ SIMPLE_UNIT_TEST(TestSpeed) {
 }
 #endif
 
-    SIMPLE_UNIT_TEST(TestFillAndChop) {
+    Y_UNIT_TEST(TestFillAndChop) {
         TBuffer buf;
         buf.Append("Some ", 5);
         buf.Fill('!', 5);
         buf.Append(" text.", 6);
-        UNIT_ASSERT_VALUES_EQUAL(TString(~buf, +buf), "Some !!!!! text.");
+        UNIT_ASSERT_VALUES_EQUAL(TString(buf.data(), buf.size()), "Some !!!!! text.");
 
         buf.Chop(5, 6);
-        UNIT_ASSERT_VALUES_EQUAL(TString(~buf, +buf), "Some text.");
+        UNIT_ASSERT_VALUES_EQUAL(TString(buf.data(), buf.size()), "Some text.");
+    }
+
+    Y_UNIT_TEST(TestComparison) {
+        TBuffer buf1("abcd", 4);
+        TBuffer buf2("abcde", 5);
+        TBuffer empty;
+        UNIT_ASSERT(empty == empty);
+        UNIT_ASSERT(!(empty != empty));
+        UNIT_ASSERT(buf1 != buf2);
+        UNIT_ASSERT(buf1 == buf1);
+        buf2.EraseBack(1);
+        UNIT_ASSERT(buf2 == buf1);
     }
 
 } // TBufferTest

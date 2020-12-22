@@ -19,7 +19,7 @@
 #include <io.h>
 #include "dirent_win.h"
 
-// these live in freeBSD_mktemp.cpp
+// these live in mktemp_system.cpp
 extern "C" int mkstemps(char* path, int slen);
 char* mkdtemp(char* path);
 
@@ -46,7 +46,7 @@ TString GetHomeDir();
 void MakeDirIfNotExist(const char* path, int mode = 0777);
 
 inline void MakeDirIfNotExist(const TString& path, int mode = 0777) {
-    MakeDirIfNotExist(~path, mode);
+    MakeDirIfNotExist(path.data(), mode);
 }
 
 /// Create path making parent directories as needed
@@ -64,7 +64,7 @@ void RemoveDirWithContents(TString dirName);
 const char* GetFileNameComponent(const char* f);
 
 inline TString GetFileNameComponent(const TString& f) {
-    return GetFileNameComponent(~f);
+    return GetFileNameComponent(f.data());
 }
 
 /// RealPath doesn't guarantee trailing separator to be stripped or left in place for directories.
@@ -78,6 +78,7 @@ int MakeTempDir(char path[/*FILENAME_MAX*/], const char* prefix);
 int RemoveTempDir(const char* dirName);
 
 int ResolvePath(const char* rel, const char* abs, char res[/*FILENAME_MAX*/], bool isdir = false);
+TString ResolvePath(const char* rel, const char* abs, bool isdir = false);
 TString ResolvePath(const char* path, bool isDir = false);
 
 TString ResolveDir(const char* path);

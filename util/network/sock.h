@@ -1,5 +1,6 @@
 #pragma once
 
+#include <util/folder/path.h>
 #include <util/system/defaults.h>
 #include <util/string/cast.h>
 #include <util/stream/output.h>
@@ -19,8 +20,8 @@
 constexpr ui16 DEF_LOCAL_SOCK_MODE = 00644;
 
 // Base abstract class for socket address
-struct TSockAddr {
-    virtual ~TSockAddr() = default;
+struct ISockAddr {
+    virtual ~ISockAddr() = default;
     // Max size of the address that we can store (arg of recvfrom)
     virtual socklen_t Size() const = 0;
     // Real length of the address (arg of sendto)
@@ -46,7 +47,7 @@ protected:
 
 #if defined(_win_) || defined(_cygwin_)
 #define YAF_LOCAL AF_INET
-struct TSockAddrLocal: public TSockAddr {
+struct TSockAddrLocal: public ISockAddr {
     TSockAddrLocal() {
         Clear();
     }
@@ -86,6 +87,10 @@ struct TSockAddrLocal: public TSockAddr {
 
     TString ToString() const {
         return TString(Path);
+    }
+
+    TFsPath ToPath() const {
+        return TFsPath(Path);
     }
 
     int ResolveAddr() const {
@@ -138,7 +143,7 @@ struct TSockAddrLocal: public TSockAddr {
 };
 #else
 #define YAF_LOCAL AF_LOCAL
-struct TSockAddrLocal: public sockaddr_un, public TSockAddr {
+struct TSockAddrLocal: public sockaddr_un, public ISockAddr {
     TSockAddrLocal() {
         Clear();
     }
@@ -177,6 +182,10 @@ struct TSockAddrLocal: public sockaddr_un, public TSockAddr {
         return TString(sun_path);
     }
 
+    TFsPath ToPath() const {
+        return TFsPath(sun_path);
+    }
+
     int Bind(SOCKET s, ui16 mode) const override {
         (void)unlink(sun_path);
 
@@ -192,7 +201,7 @@ struct TSockAddrLocal: public sockaddr_un, public TSockAddr {
 };
 #endif // _win_
 
-struct TSockAddrInet: public sockaddr_in, public TSockAddr {
+struct TSockAddrInet: public sockaddr_in, public ISockAddr {
     TSockAddrInet() {
         Clear();
     }
@@ -256,9 +265,13 @@ struct TSockAddrInet: public sockaddr_in, public TSockAddr {
     TIpPort GetPort() const noexcept {
         return InetToHost(sin_port);
     }
+
+    void SetPort(TIpPort port) noexcept {
+        sin_port = HostToInet(port);
+    }
 };
 
-struct TSockAddrInet6: public sockaddr_in6, public TSockAddr {
+struct TSockAddrInet6: public sockaddr_in6, public ISockAddr {
     TSockAddrInet6() {
         Clear();
     }
@@ -320,6 +333,10 @@ struct TSockAddrInet6: public sockaddr_in6, public TSockAddr {
     TIpPort GetPort() const noexcept {
         return InetToHost(sin6_port);
     }
+
+    void SetPort(TIpPort port) noexcept {
+        sin6_port = HostToInet(port);
+    }
 };
 
 using TSockAddrLocalStream = TSockAddrLocal;
@@ -337,7 +354,7 @@ protected:
     }
 
 public:
-    int Bind(const TSockAddr* addr, ui16 mode = DEF_LOCAL_SOCK_MODE) {
+    int Bind(const ISockAddr* addr, ui16 mode = DEF_LOCAL_SOCK_MODE) {
         return addr->Bind((SOCKET) * this, mode);
     }
 
@@ -361,23 +378,25 @@ protected:
     }
 
 public:
-    ssize_t SendTo(const void* msg, size_t len, const TSockAddr* toAddr) {
+    ssize_t SendTo(const void* msg, size_t len, const ISockAddr* toAddr) {
         ssize_t ret = toAddr->ResolveAddr();
-        if (ret < 0)
-            return -errno;
+        if (ret < 0) {
+            return -LastSystemError();
+        }
 
         ret = sendto((SOCKET) * this, (const char*)msg, (int)len, 0, toAddr->SockAddr(), toAddr->Len());
-        if (ret < 0)
-            return -errno;
+        if (ret < 0) {
+            return -LastSystemError();
+        }
 
         return ret;
     }
 
-    ssize_t RecvFrom(void* buf, size_t len, TSockAddr* fromAddr) {
+    ssize_t RecvFrom(void* buf, size_t len, ISockAddr* fromAddr) {
         socklen_t fromSize = fromAddr->Size();
         const ssize_t ret = recvfrom((SOCKET) * this, (char*)buf, (int)len, 0, fromAddr->SockAddr(), &fromSize);
         if (ret < 0) {
-            return -errno;
+            return -LastSystemError();
         }
 
         return ret;
@@ -386,12 +405,17 @@ public:
 
 class TStreamSocket: public TBaseSocket {
 protected:
-    TStreamSocket(SOCKET fd)
+    explicit TStreamSocket(SOCKET fd)
         : TBaseSocket(fd)
     {
     }
 
 public:
+    TStreamSocket()
+        : TBaseSocket(INVALID_SOCKET)
+    {
+    }
+
     ssize_t Send(const void* msg, size_t len, int flags = 0) {
         const ssize_t ret = send((SOCKET) * this, (const char*)msg, (int)len, flags);
         if (ret < 0)
@@ -408,7 +432,7 @@ public:
         return ret;
     }
 
-    int Connect(const TSockAddr* addr) {
+    int Connect(const ISockAddr* addr) {
         int ret = addr->ResolveAddr();
         if (ret < 0)
             return -errno;
@@ -428,9 +452,15 @@ public:
         return ret;
     }
 
-    int Accept(TStreamSocket* acceptedSock, TSockAddr* acceptedAddr) {
-        socklen_t acceptedSize = acceptedAddr->Size();
-        SOCKET s = accept((SOCKET) * this, acceptedAddr->SockAddr(), &acceptedSize);
+    int Accept(TStreamSocket* acceptedSock, ISockAddr* acceptedAddr = nullptr) {
+        SOCKET s = INVALID_SOCKET;
+        if (acceptedAddr) {
+            socklen_t acceptedSize = acceptedAddr->Size();
+            s = accept((SOCKET) * this, acceptedAddr->SockAddr(), &acceptedSize);
+        } else {
+            s = accept((SOCKET) * this, nullptr, nullptr);
+        }
+
         if (s == INVALID_SOCKET)
             return -errno;
 
@@ -518,7 +548,7 @@ public:
     }
 };
 
-class TStreamSocketInput: public TInputStream {
+class TStreamSocketInput: public IInputStream {
 public:
     TStreamSocketInput(TStreamSocket* socket)
         : Socket(socket)
@@ -543,7 +573,7 @@ protected:
     }
 };
 
-class TStreamSocketOutput: public TOutputStream {
+class TStreamSocketOutput: public IOutputStream {
 public:
     TStreamSocketOutput(TStreamSocket* socket)
         : Socket(socket)

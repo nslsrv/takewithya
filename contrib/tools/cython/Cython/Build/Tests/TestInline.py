@@ -17,8 +17,8 @@ class TestInline(CythonTest):
     def setUp(self):
         CythonTest.setUp(self)
         self.test_kwds = dict(test_kwds)
-        if os.path.isdir('BUILD'):
-            lib_dir = os.path.join('BUILD','inline')
+        if os.path.isdir('TEST_TMP'):
+            lib_dir = os.path.join('TEST_TMP','inline')
         else:
             lib_dir = tempfile.mkdtemp(prefix='cython_inline_')
         self.test_kwds['lib_dir'] = lib_dir
@@ -51,6 +51,12 @@ class TestInline(CythonTest):
         foo = inline("def foo(x): return x * x", **self.test_kwds)['foo']
         self.assertEquals(foo(7), 49)
 
+    def test_class_ref(self):
+        class Type(object):
+            pass
+        tp = inline("Type")['Type']
+        self.assertEqual(tp, Type)
+
     def test_pure(self):
         import cython as cy
         b = inline("""
@@ -59,6 +65,26 @@ class TestInline(CythonTest):
         return b
         """, a=3, **self.test_kwds)
         self.assertEquals(type(b), float)
+
+    def test_compiler_directives(self):
+        self.assertEqual(
+            inline('return sum(x)',
+                   x=[1, 2, 3],
+                   cython_compiler_directives={'boundscheck': False}),
+            6
+        )
+
+    def test_lang_version(self):
+        # GH-3419. Caching for inline code didn't always respect compiler directives.
+        inline_divcode = "def f(int a, int b): return a/b"
+        self.assertEqual(
+            inline(inline_divcode, language_level=2)['f'](5,2),
+            2
+        )
+        self.assertEqual(
+            inline(inline_divcode, language_level=3)['f'](5,2),
+            2.5
+        )
 
     if has_numpy:
 

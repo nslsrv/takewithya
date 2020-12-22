@@ -1,3 +1,0 @@
-RECURSE(
-    local_executor
-)

@@ -1,8 +1,8 @@
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include "guid.h"
 
-SIMPLE_UNIT_TEST_SUITE(TGuidTest) {
+Y_UNIT_TEST_SUITE(TGuidTest) {
     //TODO - make real constructor
     static TGUID Construct(ui32 d1, ui32 d2, ui32 d3, ui32 d4) {
         TGUID ret;
@@ -20,7 +20,7 @@ SIMPLE_UNIT_TEST_SUITE(TGuidTest) {
         TString S;
     };
 
-    SIMPLE_UNIT_TEST(Test1) {
+    Y_UNIT_TEST(Test1) {
         for (size_t i = 0; i < 1000; ++i) {
             TGUID g;
 
@@ -30,7 +30,7 @@ SIMPLE_UNIT_TEST_SUITE(TGuidTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(Test2) {
+    Y_UNIT_TEST(Test2) {
         const TTest tests[] = {
             {Construct(1, 1, 1, 1), "1-1-1-1"},
             {Construct(0, 0, 0, 0), "0-0-0-0"},
@@ -47,6 +47,7 @@ SIMPLE_UNIT_TEST_SUITE(TGuidTest) {
             {TGUID(), "1--1-1"},
             {TGUID(), "1-1"}, // unexpected end
             {TGUID(), "1-1-"},
+            {TGUID(), "1-1-1"},
             {TGUID(), "1-1-1-"},
             {TGUID(), "1-1-1-1-"},
             {TGUID(), "1-1-1-1-1"},
@@ -64,18 +65,33 @@ SIMPLE_UNIT_TEST_SUITE(TGuidTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(Test3) {
+    Y_UNIT_TEST(Test3) {
         //if this test failed, please, fix buffer size in GetGuidAsString()
         TGUID max = Construct(Max<ui32>(), Max<ui32>(), Max<ui32>(), Max<ui32>());
 
         UNIT_ASSERT_EQUAL(GetGuidAsString(max).length(), 35);
     }
 
-    SIMPLE_UNIT_TEST(Test4) {
+    Y_UNIT_TEST(Test4) {
         UNIT_ASSERT_VALUES_EQUAL(GetGuidAsString(Construct(1, 2, 3, 4)), "1-2-3-4");
         UNIT_ASSERT_VALUES_EQUAL(GetGuidAsString(Construct(1, 2, 0xFFFFFF, 4)), "1-2-ffffff-4");
         UNIT_ASSERT_VALUES_EQUAL(GetGuidAsString(Construct(0xFAFA, 2, 3, 4)), "fafa-2-3-4");
         UNIT_ASSERT_VALUES_EQUAL(GetGuidAsString(Construct(1, 0xADE, 3, 4)), "1-ade-3-4");
         UNIT_ASSERT_VALUES_EQUAL(GetGuidAsString(Construct(1, 2, 3, 0xDEAD)), "1-2-3-dead");
+    }
+
+    Y_UNIT_TEST(Test5) {
+        const TTest tests[] = {
+            {TGUID(), "1-1-1-1-1"},
+            {TGUID(), "00000001-0001-0001-0001-00000000001-"},
+            {Construct(0x10000001U, 0x10011001U, 0x10011001U, 0x10000001U), "10000001-1001-1001-1001-100110000001"},
+            {Construct(0x550e8400U, 0xe29b41d4U, 0xa7164466U, 0x55440000U), "550e8400-e29b-41d4-a716-446655440000"},
+            {Construct(0xffffffffU, 0xffffffffU, 0xffffffffU, 0xffffffffU), "ffffffff-ffff-ffff-ffff-ffffffffffff"},
+            {TGUID(), "ffffffff-ffffff-ff-ffff-ffffffffffff"},
+            {TGUID(), "ffffffff-ffff-ffff-ff-ffffffffffffff"}};
+
+        for (const auto& t : tests) {
+            UNIT_ASSERT_EQUAL(t.G, GetUuid(t.S));
+        }
     }
 }

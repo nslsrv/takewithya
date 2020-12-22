@@ -1,9 +1,9 @@
 #include "event.h"
 #include "atomic.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-#include <util/thread/queue.h>
+#include <util/thread/pool.h>
 
 namespace {
     struct TSharedData {
@@ -83,12 +83,12 @@ namespace {
         }
     };
 
-} // namespace anonymous
+}
 
-SIMPLE_UNIT_TEST_SUITE(EventTest) {
-    SIMPLE_UNIT_TEST(WaitAndSignalTest) {
+Y_UNIT_TEST_SUITE(EventTest) {
+    Y_UNIT_TEST(WaitAndSignalTest) {
         TSharedData data;
-        TMtpQueue queue;
+        TThreadPool queue;
         queue.Start(5);
         for (size_t i = 0; i < 5; ++i) {
             UNIT_ASSERT(queue.Add(new TThreadTask(data, i)));
@@ -98,16 +98,16 @@ SIMPLE_UNIT_TEST_SUITE(EventTest) {
         UNIT_ASSERT(!data.failed);
     }
 
-    SIMPLE_UNIT_TEST(ConcurrentSignalAndWaitTest) {
+    Y_UNIT_TEST(ConcurrentSignalAndWaitTest) {
         // test for problem detected by thread-sanitizer (signal/wait race) SEARCH-2113
         const size_t limit = 200;
         TManualEvent event[limit];
         TManualEvent barrier;
-        TMtpQueue queue;
+        TThreadPool queue;
         queue.Start(limit);
-        yvector<TAutoPtr<IObjectInQueue>> tasks;
+        TVector<THolder<IObjectInQueue>> tasks;
         for (size_t i = 0; i < limit; ++i) {
-            tasks.push_back(new TSignalTask(barrier, event[i]));
+            tasks.emplace_back(MakeHolder<TSignalTask>(barrier, event[i]));
             UNIT_ASSERT(queue.Add(tasks.back().Get()));
         }
         for (size_t i = limit; i != 0; --i) {
@@ -117,18 +117,18 @@ SIMPLE_UNIT_TEST_SUITE(EventTest) {
     }
 
     /** Test for a problem: http://nga.at.yandex-team.ru/5772 */
-    SIMPLE_UNIT_TEST(DestructorBeforeSignalFinishTest) {
+    Y_UNIT_TEST(DestructorBeforeSignalFinishTest) {
         return;
-        yvector<TAutoPtr<IObjectInQueue>> tasks;
+        TVector<THolder<IObjectInQueue>> tasks;
         for (size_t i = 0; i < 1000; ++i) {
-            TAutoPtr<TOwnerTask> owner = new TOwnerTask;
-            tasks.push_back(new TSignalTask(owner->Barrier, *owner->Ev));
-            tasks.push_back(owner.Release());
+            auto owner = MakeHolder<TOwnerTask>();
+            tasks.emplace_back(MakeHolder<TSignalTask>(owner->Barrier, *owner->Ev));
+            tasks.emplace_back(std::move(owner));
         }
 
-        TMtpQueue queue;
+        TThreadPool queue;
         queue.Start(4);
-        for (auto task : tasks) {
+        for (auto& task : tasks) {
             UNIT_ASSERT(queue.Add(task.Get()));
         }
         queue.Stop();

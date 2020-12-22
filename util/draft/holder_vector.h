@@ -5,8 +5,8 @@
 #include <util/generic/noncopyable.h>
 
 template <class T, class D = TDelete>
-class THolderVector: protected  yvector<T*>, public TNonCopyable {
-    using TBase = yvector<T*>;
+class THolderVector: public TVector<T*>, public TNonCopyable {
+    using TBase = TVector<T*>;
 
 public:
     explicit THolderVector(size_t n = 0)
@@ -30,7 +30,7 @@ public:
         return TBase::size();
     }
 
-    // yvector takes ownership of T
+    // TVector takes ownership of T
     void PushBack(T* t) {
         try {
             TBase::push_back(t);
@@ -41,23 +41,15 @@ public:
         }
     }
 
-    void PushBack(TAutoPtr<T> t) {
-        PushBack(t.Release());
-    }
-
-    void PushBack(std::auto_ptr<T>& t) {
+    void PushBack(std::unique_ptr<T> t) {
         PushBack(t.release());
     }
 
-    void PushBack(std::unique_ptr<T>&& t) {
-        PushBack(t.release());
-    }
-
-    void PushBack(THolder<T>& t) {
+    void PushBack(THolder<T> t) {
         PushBack(t.Release());
     }
 
-    void Reset(size_t i, TAutoPtr<T> t) {
+    void Reset(size_t i, THolder<T> t) {
         T* current = (*this)[i];
         if (current) {
             Y_ASSERT(current != t.Get());
@@ -91,22 +83,20 @@ public:
     }
 
     using TBase::operator[];
-    using TBase::operator~;
-    using TBase::operator+;
     using TBase::operator bool;
     using TBase::at;
-    using TBase::capacity;
-    using TBase::size;
-    using TBase::empty;
-    using TBase::front;
     using TBase::back;
     using TBase::begin;
-    using TBase::reserve;
+    using TBase::capacity;
+    using TBase::empty;
     using TBase::end;
+    using TBase::front;
+    using TBase::reserve;
+    using TBase::size;
 
-    using typename TBase::iterator;
     using typename TBase::const_iterator;
-    using typename TBase::reverse_iterator;
     using typename TBase::const_reverse_iterator;
+    using typename TBase::iterator;
+    using typename TBase::reverse_iterator;
     using typename TBase::value_type;
 };

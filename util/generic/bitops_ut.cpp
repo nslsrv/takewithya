@@ -1,6 +1,6 @@
 #include "bitops.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 #include <util/string/builder.h>
 
@@ -44,14 +44,14 @@ static T ReverseBitsSlow(T v) {
 }
 
 // DO_NOT_STYLE
-SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
-    SIMPLE_UNIT_TEST(TestCountTrailingZeroBits) {
+Y_UNIT_TEST_SUITE(TBitOpsTest) {
+    Y_UNIT_TEST(TestCountTrailingZeroBits) {
         TestCTZ<unsigned int>();
         TestCTZ<unsigned long>();
         TestCTZ<unsigned long long>();
     }
 
-    SIMPLE_UNIT_TEST(TestIsPowerOf2) {
+    Y_UNIT_TEST(TestIsPowerOf2) {
         UNIT_ASSERT(!IsPowerOf2(-2));
         UNIT_ASSERT(!IsPowerOf2(-1));
         UNIT_ASSERT(!IsPowerOf2(0));
@@ -66,13 +66,13 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         UNIT_ASSERT(!IsPowerOf2(0x1000000000000001ull));
     }
 
-    SIMPLE_UNIT_TEST(TestFastClp2) {
+    Y_UNIT_TEST(TestFastClp2) {
         TestFastClp2ForEachPowerOf2<unsigned>();
         TestFastClp2ForEachPowerOf2<unsigned long>();
         TestFastClp2ForEachPowerOf2<unsigned long long>();
     }
 
-    SIMPLE_UNIT_TEST(TestMask) {
+    Y_UNIT_TEST(TestMask) {
         for (ui32 i = 0; i < 64; ++i) {
             UNIT_ASSERT_VALUES_EQUAL(MaskLowerBits(i), (ui64{1} << i) - 1);
             UNIT_ASSERT_VALUES_EQUAL(InverseMaskLowerBits(i), ~MaskLowerBits(i));
@@ -81,7 +81,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestMostSignificantBit) {
+    Y_UNIT_TEST(TestMostSignificantBit) {
         static_assert(MostSignificantBitCT(0) == 0, ".");
         static_assert(MostSignificantBitCT(1) == 0, ".");
         static_assert(MostSignificantBitCT(5) == 2, ".");
@@ -95,7 +95,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestLeastSignificantBit) {
+    Y_UNIT_TEST(TestLeastSignificantBit) {
         for (ui32 i = 0; i < 64; ++i) {
             UNIT_ASSERT_VALUES_EQUAL(i, LeastSignificantBit(ui64{ 1 } << i));
         }
@@ -110,7 +110,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestCeilLog2) {
+    Y_UNIT_TEST(TestCeilLog2) {
         UNIT_ASSERT_VALUES_EQUAL(CeilLog2(ui64{1}), 1);
 
         for (ui32 i = 2; i < 64; ++i) {
@@ -119,7 +119,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestReverse) {
+    Y_UNIT_TEST(TestReverse) {
         for (ui64 i = 0; i < 0x100; ++i) {
             UNIT_ASSERT_VALUES_EQUAL(ReverseBits((ui8)i), ReverseBitsSlow((ui8)i));
             UNIT_ASSERT_VALUES_EQUAL(ReverseBits((ui16)i), ReverseBitsSlow((ui16)i));
@@ -146,7 +146,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         }
     }
 
-    SIMPLE_UNIT_TEST(TestRotateBitsLeft) {
+    Y_UNIT_TEST(TestRotateBitsLeft) {
         static_assert(RotateBitsLeftCT<ui8>(0b00000000u, 0) == 0b00000000u, "");
         static_assert(RotateBitsLeftCT<ui8>(0b00000001u, 0) == 0b00000001u, "");
         static_assert(RotateBitsLeftCT<ui8>(0b10000000u, 0) == 0b10000000u, "");
@@ -220,7 +220,7 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         UNIT_ASSERT_VALUES_EQUAL(RotateBitsLeft<ui64>(0b1000000000000000000000000000000000000000000000000000000000000000u, 63), 0b0100000000000000000000000000000000000000000000000000000000000000u);
     }
 
-    SIMPLE_UNIT_TEST(TestRotateBitsRight) {
+    Y_UNIT_TEST(TestRotateBitsRight) {
         static_assert(RotateBitsRightCT<ui8>(0b00000000u, 0) == 0b00000000u, "");
         static_assert(RotateBitsRightCT<ui8>(0b00000001u, 0) == 0b00000001u, "");
         static_assert(RotateBitsRightCT<ui8>(0b10000000u, 0) == 0b10000000u, "");
@@ -292,5 +292,58 @@ SIMPLE_UNIT_TEST_SUITE(TBitOpsTest) {
         UNIT_ASSERT_VALUES_EQUAL(RotateBitsRight<ui64>(0b0000000000000000000000000000000000000000000000000000000000000101u, 1),  0b1000000000000000000000000000000000000000000000000000000000000010u);
         UNIT_ASSERT_VALUES_EQUAL(RotateBitsRight<ui64>(0b1010000000000000000000000000000000000000000000000000000000000000u, 1),  0b0101000000000000000000000000000000000000000000000000000000000000u);
         UNIT_ASSERT_VALUES_EQUAL(RotateBitsRight<ui64>(0b0000000000000000000000000000000000000000000000000000000000000001u, 63),  0b0000000000000000000000000000000000000000000000000000000000000010u);
+    }
+
+    Y_UNIT_TEST(TestSelectBits) {
+        ui8 firstui8Test = SelectBits<3, 4, ui8>(0b11111111u);
+        ui8 secondui8Test = SelectBits<2, 5, ui8>(0b11101101u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui8Test, 0b00001111u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui8Test, 0b00011011u);
+
+        ui16 firstui16Test = SelectBits<9, 2, ui16>(0b1111111111111111u);
+        ui16 secondui16Test = SelectBits<3, 6, ui16>(0b1010011111010001u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui16Test, 0b0000000000000011u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui16Test, 0b0000000000111010u);
+
+        ui32 firstui32Test = SelectBits<23, 31, ui32>(0b11111111111111111111111111111111u);
+        ui32 secondui32Test = SelectBits<0, 31, ui32>(0b10001011101010011111010000111111u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui32Test, 0b00000000000000000000000111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui32Test, 0b00001011101010011111010000111111);
+
+        ui64 firstui64Test = SelectBits<1, 62, ui64>(0b1111000000000000000000000000000000000000000000000000000000000000u);
+        ui64 secondui64Test = SelectBits<32, 43, ui64>(0b1111111111111111111111111111111111111111111111111111111111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui64Test, 0b0011100000000000000000000000000000000000000000000000000000000000u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui64Test, 0b0000000000000000000000000000000011111111111111111111111111111111u);
+    }
+
+    Y_UNIT_TEST(TestSetBits) {
+        ui8 firstui8Test = 0b11111111u;
+        SetBits<3, 4, ui8>(firstui8Test, 0b00001111u);
+        ui8 secondui8Test = 0b11101101u;
+        SetBits<2, 7, ui8>(secondui8Test, 0b01110111u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui8Test, 0b11111111u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui8Test, 0b11011101u);
+
+
+        ui16 firstui16Test = 0b1111111111111111u;
+        SetBits<9, 4, ui16>(firstui16Test, 0b000000000000111u);
+        ui16 secondui16Test = 0b1010011111010001u;
+        SetBits<3, 15, ui16>(secondui16Test, 0b0010011111010001u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui16Test, 0b1110111111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui16Test, 0b0011111010001001u);
+
+        ui32 firstui32Test = 0b11111111111111111111111111111111u;
+        SetBits<23, 31, ui32>(firstui32Test, 0b01100001111111111001111101111111u);
+        ui32 secondui32Test = 0b10001011101010011111010000111111u;
+        SetBits<0, 31, ui32>(secondui32Test, 0b01111111111111111111111111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui32Test, 0b10111111111111111111111111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui32Test, 0b11111111111111111111111111111111u);
+
+        ui64 firstui64Test = 0b1111000000000000000000000000000000000000000000000000000000000000u;
+        SetBits<1, 62, ui64>(firstui64Test, 0b0001000000000000000000000000000000000000000000000000000001010101u);
+        ui64 secondui64Test = 0b1111111111111111111111111111111111111111111111111111111111111111u;
+        SetBits<32, 43, ui64>(secondui64Test, 0b0000000000000000000000000000000000000111111111111111111111111111u);
+        UNIT_ASSERT_VALUES_EQUAL(firstui64Test, 0b1010000000000000000000000000000000000000000000000000000010101010u);
+        UNIT_ASSERT_VALUES_EQUAL(secondui64Test, 0b0000011111111111111111111111111111111111111111111111111111111111u);
     }
 };

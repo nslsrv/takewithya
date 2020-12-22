@@ -1,7 +1,7 @@
 
 #include "murmur.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 class TMurmurHashTest: public TTestBase {
     UNIT_TEST_SUITE(TMurmurHashTest);
@@ -52,7 +52,7 @@ private:
     }
 
     template <class E, class T>
-    inline void TestWrapper(const NArrayRef::TArrayRef<E>& array, T expected) {
+    inline void TestWrapper(const TArrayRef<E>& array, T expected) {
         auto val = TMurmurHash<T>()(array);
         UNIT_ASSERT_EQUAL(val, expected);
     }

@@ -1,25 +1,31 @@
 LIBRARY()
 
+LICENSE(
+    PSF
+)
+
 
 
 INCLUDE(${ARCADIA_ROOT}/contrib/tools/python/pyconfig.inc)
 
 PEERDIR(
+    certs
     contrib/tools/python/base
+    contrib/tools/python/include
 )
 
-ADDINCL(
-    ${PYTHON_SRC_DIR}
-    ${PYTHON_SRC_DIR}/Include
-)
+SUPPRESSIONS(lsan.supp)
 
 SRCDIR(
     ${PYTHON_SRC_DIR}/Lib
 )
 
-IF (YMAKE)
-    PYTHON(bootstrap.py python_frozen_modules.rodata bootstrap.c python-libs.txt IN python-libs.txt OUT bootstrap.c OUT python_frozen_modules.rodata
+RUN_PROGRAM(
+    contrib/tools/python/bootstrap bootstrap.py python_frozen_modules.rodata bootstrap.c python-libs.txt
+    IN bootstrap.py python-libs.txt
+    OUT python_frozen_modules.rodata bootstrap.c
 
+ENV PYTHONPATH=${PYTHON_SRC_DIR}/Lib
 IN ${PYTHON_SRC_DIR}/Include/Python.h
 IN __future__.py
 IN __phello__.foo.py
@@ -617,7 +623,6 @@ IN lib2to3/fixes/fix_apply.py
 IN lib2to3/fixes/fix_asserts.py
 IN lib2to3/fixes/fix_basestring.py
 IN lib2to3/fixes/fix_buffer.py
-IN lib2to3/fixes/fix_callable.py
 IN lib2to3/fixes/fix_dict.py
 IN lib2to3/fixes/fix_except.py
 IN lib2to3/fixes/fix_exec.py
@@ -1030,6 +1035,10 @@ IN tabnanny.py
 IN tarfile.py
 IN telnetlib.py
 IN tempfile.py
+IN test/__init__.py
+IN test/support/__init__.py
+IN test/support/script_helper.py
+IN test/test_support.py
 IN textwrap.py
 IN this.py
 IN threading.py
@@ -1113,9 +1122,6 @@ IN xmllib.py
 IN xmlrpclib.py
 IN zipfile.py
 
-    )
-ELSE ()
-    PYTHON(bootstrap.py bootstrap.c python-libs.txt IN python-libs.txt OUT bootstrap.c)
-ENDIF()
+)
 
 END()

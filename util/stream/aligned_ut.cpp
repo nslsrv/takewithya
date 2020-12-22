@@ -1,8 +1,8 @@
 #include "aligned.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
-class TNastyInputStream: public TInputStream {
+class TNastyInputStream: public IInputStream {
 public:
     TNastyInputStream()
         : Pos_(0)
@@ -31,8 +31,8 @@ private:
     size_t Pos_;
 };
 
-SIMPLE_UNIT_TEST_SUITE(TAlignedTest) {
-    SIMPLE_UNIT_TEST(AlignInput) {
+Y_UNIT_TEST_SUITE(TAlignedTest) {
+    Y_UNIT_TEST(AlignInput) {
         TNastyInputStream input0;
         TAlignedInput alignedInput(&input0);
 

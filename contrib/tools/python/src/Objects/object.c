@@ -378,7 +378,12 @@ PyObject_Repr(PyObject *v)
                                    Py_TYPE(v)->tp_name, v);
     else {
         PyObject *res;
+        /* It is possible for a type to have a tp_repr representation that
+           loops infinitely. */
+        if (Py_EnterRecursiveCall(" while getting the repr of an object"))
+            return NULL;
         res = (*Py_TYPE(v)->tp_repr)(v);
+        Py_LeaveRecursiveCall();
         if (res == NULL)
             return NULL;
 #ifdef Py_USING_UNICODE
@@ -2335,30 +2340,9 @@ PyTypeObject *_Py_cobject_hack = &PyCObject_Type;
 Py_ssize_t (*_Py_abstract_hack)(PyObject *) = PyObject_Size;
 
 
-/* Python's malloc wrappers (see pymem.h) */
-
-void *
-PyMem_Malloc(size_t nbytes)
-{
-    return PyMem_MALLOC(nbytes);
-}
-
-void *
-PyMem_Realloc(void *p, size_t nbytes)
-{
-    return PyMem_REALLOC(p, nbytes);
-}
-
-void
-PyMem_Free(void *p)
-{
-    PyMem_FREE(p);
-}
-
-
 /* These methods are used to control infinite recursion in repr, str, print,
    etc.  Container objects that may recursively contain themselves,
-   e.g. builtin dictionaries and lists, should used Py_ReprEnter() and
+   e.g. builtin dictionaries and lists, should use Py_ReprEnter() and
    Py_ReprLeave() to avoid infinite recursion.
 
    Py_ReprEnter() returns 0 the first time it is called for a particular

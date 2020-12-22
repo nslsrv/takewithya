@@ -10,13 +10,13 @@
 
 namespace NFsPrivate {
     static LPCWSTR UTF8ToWCHAR(const TStringBuf str, TUtf16String& wstr) {
-        wstr.resize(+str);
+        wstr.resize(str.size());
         size_t written = 0;
-        if (!UTF8ToWide(~str, +str, wstr.begin(), written))
+        if (!UTF8ToWide(str.data(), str.size(), wstr.begin(), written))
             return nullptr;
         wstr.erase(written);
         static_assert(sizeof(WCHAR) == sizeof(wchar16), "expect sizeof(WCHAR) == sizeof(wchar16)");
-        return (const WCHAR*)~wstr;
+        return (const WCHAR*)wstr.data();
     }
 
     static TString WCHARToUTF8(const LPWSTR wstr, size_t len) {
@@ -91,7 +91,7 @@ namespace NFsPrivate {
 
                 if (linkDir) {
                     TString fullTarget(tName);
-                    resolvepath(fullTarget, linkDir.ToString());
+                    resolvepath(fullTarget, TString{linkDir});
                     TUtf16String fullTargetW;
                     LPCWSTR ptrFullTarget = UTF8ToWCHAR(fullTarget, fullTargetW);
                     attr = ::GetFileAttributesW(ptrFullTarget);
@@ -143,7 +143,7 @@ namespace NFsPrivate {
         LPCWSTR ptr = UTF8ToWCHAR(path, buf);
         return CreateDirectoryW(ptr, (LPSECURITY_ATTRIBUTES) nullptr);
     }
-// edited part of <Ntifs.h> from Windows DDK
+    // edited part of <Ntifs.h> from Windows DDK
 
 #define SYMLINK_FLAG_RELATIVE 1
 
@@ -230,4 +230,4 @@ bool GetObjectId(const char* path, GUID* id) {
 }
 */
 
-} //NFsPrivate
+}

@@ -1,15 +1,16 @@
 # Generated automatically by ../modules.py
 
+ADDINCL(contrib/libs/expat)
 ADDINCL(contrib/libs/libbz2)
-ADDINCL(contrib/libs/sqlite3)
 ADDINCL(contrib/libs/zlib)
+PEERDIR(contrib/libs/expat)
 PEERDIR(contrib/libs/libbz2)
 PEERDIR(contrib/libs/openssl)
-PEERDIR(contrib/libs/sqlite3)
 PEERDIR(contrib/libs/zlib)
 SRCS(Modules/_bisectmodule.c
      Modules/_collectionsmodule.c
      Modules/_csv.c
+     Modules/_elementtree.c
      Modules/_functoolsmodule.c
      Modules/_hashopenssl.c
      Modules/_heapqmodule.c
@@ -26,15 +27,6 @@ SRCS(Modules/_bisectmodule.c
      Modules/_lsprof.c
      Modules/_math.c
      Modules/_randommodule.c
-     Modules/_sqlite/cache.c
-     Modules/_sqlite/connection.c
-     Modules/_sqlite/cursor.c
-     Modules/_sqlite/microprotocols.c
-     Modules/_sqlite/module.c
-     Modules/_sqlite/prepare_protocol.c
-     Modules/_sqlite/row.c
-     Modules/_sqlite/statement.c
-     Modules/_sqlite/util.c
      Modules/_struct.c
      Modules/arraymodule.c
      Modules/audioop.c
@@ -64,40 +56,23 @@ SRCS(Modules/_bisectmodule.c
 
 CFLAGS(-DBUILD_ZLIB)
 
-IF (ARCH_X86_64 OR ARCH_I386)
+IF (ARCH_X86_64 OR ARCH_I386 OR ARCH_PPC64LE OR ARCH_AARCH64)
     IF (OS_CYGWIN)
         #TODO
     ELSE()
-        PEERDIR(contrib/tools/python/src/Modules/_ctypes/libffi)
+        PEERDIR(contrib/restricted/libffi)
 
-        IF (UNIX)
-            ADDINCL(${PYTHON_SRC_DIR}/Modules/_ctypes/libffi/include)
-        ELSEIF (WIN32)
-            ADDINCL(${PYTHON_SRC_DIR}/Modules/_ctypes/libffi_msvc)
-        ENDIF()
+        ADDINCL(contrib/restricted/libffi/include)
 
         SRCS(
             Modules/_ctypes/_ctypes.c
             Modules/_ctypes/callbacks.c
             Modules/_ctypes/callproc.c
             Modules/_ctypes/cfield.c
-            Modules/_ctypes/malloc_closure.c
             Modules/_ctypes/stgdict.c
         )
     ENDIF()
 ENDIF()
-
-IF (FREEBSD OR LINUX)
-    IF (NOT MUSL)
-        SRCS(Modules/nismodule.c)
-
-        IF (LINUX)
-            EXTRALIBS(nsl)
-        ENDIF ()
-
-        CFLAGS(-D_HAVE_NIS=1)
-    ENDIF ()
-ENDIF ()
 
 IF(FREEBSD)
     IF(FREEBSD_VER GREATER 7)
@@ -119,21 +94,22 @@ IF(LINUX)
     )
 ENDIF(LINUX)
 
-IF(DARWIN OR OS_CYGWIN)
+IF(DARWIN OR OS_CYGWIN OR OS_IOS)
     SRCS(Modules/_multiprocessing/multiprocessing.c
          Modules/_multiprocessing/semaphore.c
          Modules/_multiprocessing/socket_connection.c
     )
-ENDIF(DARWIN OR OS_CYGWIN)
+ENDIF(DARWIN OR OS_CYGWIN OR OS_IOS)
+
+IF (OS_DARWIN)
+    SRCS(
+        Mac/Modules/_scproxy.c
+    )
+ENDIF()
 
 IF (UNIX)
-    ADDINCL(${PYTHON_SRC_DIR}/Modules/expat)
-    SRCS(Modules/_elementtree.c
-         Modules/_ssl.c
+    SRCS(Modules/_ssl.c
          Modules/cryptmodule.c
-         Modules/expat/xmlparse.c
-         Modules/expat/xmlrole.c
-         Modules/expat/xmltok.c
          Modules/fcntlmodule.c
          Modules/grpmodule.c
          Modules/posixmodule.c
@@ -148,36 +124,32 @@ IF (UNIX)
 
     IF (OS_CYGWIN)
         #PASS
-    ELSEIF (NOT DARWIN)
+    ELSEIF (NOT DARWIN AND NOT OS_IOS)
         EXTRALIBS(crypt)
     ENDIF()
 
-    CFLAGS(-DHAVE_EXPAT_CONFIG_H=1)
-    CFLAGS(-DHAVE_EXPAT_CONFIG_H=1 -DUSE_PYEXPAT_CAPI)
+    # bpo-30947: Python uses best available entropy sources to
+    # call XML_SetHashSalt(), expat entropy sources are not needed
+    CFLAGS(-DHAVE_EXPAT_CONFIG_H -DXML_POOR_ENTROPY -DUSE_PYEXPAT_CAPI)
 ENDIF(UNIX)
 
-IF (WIN32)
-    ADDINCL(${PYTHON_SRC_DIR}/Modules/expat)
-
-    SRCS(Modules/_elementtree.c
-         Modules/_multiprocessing/multiprocessing.c
+IF (OS_WINDOWS)
+    SRCS(Modules/_multiprocessing/multiprocessing.c
          Modules/_multiprocessing/pipe_connection.c
          Modules/_multiprocessing/semaphore.c
          Modules/_multiprocessing/socket_connection.c
          Modules/_multiprocessing/win32_functions.c
          Modules/_ssl.c
-         Modules/expat/xmlparse.c
-         Modules/expat/xmlrole.c
-         Modules/expat/xmltok.c
          Modules/posixmodule.c
          Modules/pyexpat.c
          Modules/selectmodule.c
          Modules/socketmodule.c
     )
-    EXTRALIBS(crypt32.lib ws2_32.lib)
+    LDFLAGS(crypt32.lib ws2_32.lib)
 
-    CFLAGS(-DHAVE_EXPAT_CONFIG_H=1 -DHAVE_MEMMOVE)
-    CFLAGS(-DHAVE_EXPAT_CONFIG_H=1 -DHAVE_MEMMOVE -DUSE_PYEXPAT_CAPI)
+    CFLAGS(-DHAVE_EXPAT_CONFIG_H -DXML_POOR_ENTROPY -DHAVE_MEMMOVE -DUSE_PYEXPAT_CAPI)
     CFLAGS(-DEAI_ADDRFAMILY=1 -DHAVE_SOCKADDR_STORAGE=1 -DHAVE_ADDRINFO=1)
-    CFLAGS(/D_WIN64 /D_M_X64)
+    IF (ARCH_X86_64)
+        CFLAGS(/D_WIN64 /D_M_X64)
+    ENDIF()
 ENDIF(WIN32)

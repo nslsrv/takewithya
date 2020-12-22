@@ -5,6 +5,7 @@
 {"_bisect", init_bisect},
 {"_collections", init_collections},
 {"_csv", init_csv},
+{"_elementtree", init_elementtree},
 {"_functools", init_functools},
 {"_hashlib", init_hashlib},
 {"_heapq", init_heapq},
@@ -19,7 +20,6 @@
 {"_sha", init_sha},
 {"_sha256", init_sha256},
 {"_sha512", init_sha512},
-{"_sqlite3", init_sqlite3},
 {"_ssl", init_ssl},
 {"_struct", init_struct},
 {"array", initarray},
@@ -41,10 +41,6 @@
 {"unicodedata", initunicodedata},
 {"zlib", initzlib},
 
-#ifdef _HAVE_NIS
-{"nis", initnis},
-#endif
-
 #ifdef _FREEBSD_
 {"_multiprocessing", init_multiprocessing},
 {"_multiprocessing", init_multiprocessing},
@@ -56,7 +52,10 @@
 #endif
 
 #ifdef _DARWIN_
+#ifndef __IOS__
 {"_multiprocessing", init_multiprocessing},
+{"_scproxy", init_scproxy},
+#endif
 #endif
 
 #ifdef _CYGWIN_
@@ -64,7 +63,6 @@
 #endif
 
 #ifdef _UNIX_
-{"_elementtree", init_elementtree},
 {"_socket", init_socket},
 {"crypt", initcrypt},
 {"fcntl", initfcntl},
@@ -79,7 +77,6 @@
 #endif
 
 #ifdef _WIN32_
-{"_elementtree", init_elementtree},
 {"_multiprocessing", init_multiprocessing},
 {"_socket", init_socket},
 {"nt", initnt},
@@ -90,6 +87,6 @@
 {"_winreg", init_winreg},
 #endif
 
-#if !defined(_ARM_) && !defined(_CYGWIN_)
+#if defined(_x86_) && !defined(_CYGWIN_) || defined(__powerpc__) || defined(__aarch64__)
 {"_ctypes", init_ctypes},
 #endif

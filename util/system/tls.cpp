@@ -6,6 +6,7 @@
 #include <util/generic/hash.h>
 #include <util/generic/intrlist.h>
 #include <util/generic/singleton.h>
+#include <util/generic/vector.h>
 
 #if defined(_unix_)
 #include <pthread.h>
@@ -91,8 +92,8 @@ namespace {
             }
 
         private:
-            yvector<TStoredValue*> Values_;
-            yhash<size_t, TStoredValue*> FarValues_;
+            TVector<TStoredValue*> Values_;
+            THashMap<size_t, TStoredValue*> FarValues_;
             TIntrusiveListWithAutoDelete<TStoredValue, TDelete> Storage_;
         };
 
@@ -207,9 +208,9 @@ namespace {
         }
 
     private:
-        using TPTSRef = TAutoPtr<TPerThreadStorage>;
+        using TPTSRef = THolder<TPerThreadStorage>;
         TMutex Lock_;
-        yhash<TThread::TId, TPTSRef> Datas_;
+        THashMap<TThread::TId, TPTSRef> Datas_;
     };
 }
 
@@ -241,6 +242,8 @@ TKey::TKey(TDtor dtor)
     : Impl_(new TImpl(dtor))
 {
 }
+
+TKey::TKey(TKey&&) noexcept = default;
 
 TKey::~TKey() = default;
 

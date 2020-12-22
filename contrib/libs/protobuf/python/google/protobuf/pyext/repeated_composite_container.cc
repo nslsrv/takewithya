@@ -35,18 +35,20 @@
 
 #include <memory>
 #ifndef _SHARED_PTR_H
-#include "stubs/shared_ptr.h"
+#error #include <google/protobuf/stubs/shared_ptr.h>
 #endif
 
-#include <contrib/libs/protobuf/stubs/logging.h>
-#include "stubs/common.h"
-#include "descriptor.h"
-#include "dynamic_message.h"
-#include "message.h"
+#include <google/protobuf/stubs/logging.h>
+#include <google/protobuf/stubs/common.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/message.h>
 #include "pyext/descriptor.h"
 #include "pyext/descriptor_pool.h"
 #include "pyext/message.h"
+#include "pyext/message_factory.h"
 #include "pyext/scoped_pyobject_ptr.h"
+#include <google/protobuf/reflection.h>
 
 #if PY_MAJOR_VERSION >= 3
   #define PyInt_Check PyLong_Check
@@ -136,9 +138,12 @@ static PyObject* AddToAttached(RepeatedCompositeContainer* self,
   if (cmessage::AssureWritable(self->parent) == -1)
     return NULL;
   Message* message = self->message;
+
   Message* sub_message =
-      message->GetReflection()->AddMessage(message,
-                                           self->parent_field_descriptor);
+      message->GetReflection()->AddMessage(
+          message,
+          self->parent_field_descriptor,
+          self->child_message_class->py_message_factory->message_factory);
   CMessage* cmsg = cmessage::NewEmptyMessage(self->child_message_class);
   if (cmsg == NULL)
     return NULL;
@@ -265,10 +270,11 @@ int AssignSubscript(RepeatedCompositeContainer* self,
     if (PySlice_Check(slice)) {
 #if PY_MAJOR_VERSION >= 3
       if (PySlice_GetIndicesEx(slice,
+                               length, &from, &to, &step, &slicelength) == -1) {
 #else
       if (PySlice_GetIndicesEx(reinterpret_cast<PySliceObject*>(slice),
-#endif
                                length, &from, &to, &step, &slicelength) == -1) {
+#endif
         return -1;
       }
       return PySequence_DelSlice(self->child_messages, from, to);
@@ -334,6 +340,18 @@ static PyObject* RichCompare(RepeatedCompositeContainer* self,
   }
 }
 
+static PyObject* ToStr(RepeatedCompositeContainer* self) {
+  ScopedPyObjectPtr full_slice(PySlice_New(NULL, NULL, NULL));
+  if (full_slice == NULL) {
+    return NULL;
+  }
+  ScopedPyObjectPtr list(Subscript(self, full_slice.get()));
+  if (list == NULL) {
+    return NULL;
+  }
+  return PyObject_Repr(list.get());
+}
+
 // ---------------------------------------------------------------------
 // sort()
 
@@ -364,7 +382,7 @@ static int SortPythonMessages(RepeatedCompositeContainer* self,
   ScopedPyObjectPtr m(PyObject_GetAttrString(self->child_messages, "sort"));
   if (m == NULL)
     return -1;
-  if (PyObject_Call(m.get(), args, kwds) == NULL)
+  if (ScopedPyObjectPtr(PyObject_Call(m.get(), args, kwds)) == NULL)
     return -1;
   if (self->message != NULL) {
     ReorderAttached(self);
@@ -485,6 +503,32 @@ int Release(RepeatedCompositeContainer* self) {
   return 0;
 }
 
+PyObject* DeepCopy(RepeatedCompositeContainer* self, PyObject* arg) {
+  ScopedPyObjectPtr cloneObj(
+      PyType_GenericAlloc(&RepeatedCompositeContainer_Type, 0));
+  if (cloneObj == NULL) {
+    return NULL;
+  }
+  RepeatedCompositeContainer* clone =
+      reinterpret_cast<RepeatedCompositeContainer*>(cloneObj.get());
+
+  Message* new_message = self->message->New();
+  clone->parent = NULL;
+  clone->parent_field_descriptor = self->parent_field_descriptor;
+  clone->message = new_message;
+  clone->owner.reset(new_message);
+  Py_INCREF(self->child_message_class);
+  clone->child_message_class = self->child_message_class;
+  clone->child_messages = PyList_New(0);
+
+  new_message->GetReflection()
+      ->GetMutableRepeatedFieldRef<Message>(new_message,
+                                            self->parent_field_descriptor)
+      .MergeFrom(self->message->GetReflection()->GetRepeatedFieldRef<Message>(
+          *self->message, self->parent_field_descriptor));
+  return cloneObj.release();
+}
+
 int SetOwner(RepeatedCompositeContainer* self,
              const shared_ptr<Message>& new_owner) {
   GOOGLE_CHECK_ATTACHED(self);
@@ -551,6 +595,8 @@ static PyMappingMethods MpMethods = {
 };
 
 static PyMethodDef Methods[] = {
+  { "__deepcopy__", (PyCFunction)DeepCopy, METH_VARARGS,
+    "Makes a deep copy of the class." },
   { "add", (PyCFunction) Add, METH_VARARGS | METH_KEYWORDS,
     "Adds an object to the repeated container." },
   { "extend", (PyCFunction) Extend, METH_O,
@@ -578,7 +624,7 @@ PyTypeObject RepeatedCompositeContainer_Type = {
   0,                                   //  tp_getattr
   0,                                   //  tp_setattr
   0,                                   //  tp_compare
-  0,                                   //  tp_repr
+  (reprfunc)repeated_composite_container::ToStr,      //  tp_repr
   0,                                   //  tp_as_number
   &repeated_composite_container::SqMethods,   //  tp_as_sequence
   &repeated_composite_container::MpMethods,   //  tp_as_mapping

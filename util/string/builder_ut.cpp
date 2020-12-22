@@ -1,6 +1,6 @@
 #include "builder.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 
 static void TestEquals(const TString& expected, const TString& actual) {
     UNIT_ASSERT_VALUES_EQUAL(expected, actual);
@@ -17,19 +17,19 @@ struct TClassWithStreamOperator {
     }
 };
 
-TOutputStream& operator<<(TOutputStream& out, const TClassWithStreamOperator& value) {
+IOutputStream& operator<<(IOutputStream& out, const TClassWithStreamOperator& value) {
     return out << value.Id << " " << value.Name;
 }
 
-SIMPLE_UNIT_TEST_SUITE(TStringBuilderTest) {
-    SIMPLE_UNIT_TEST(TestStringBuilder) {
+Y_UNIT_TEST_SUITE(TStringBuilderTest) {
+    Y_UNIT_TEST(TestStringBuilder) {
         TestEquals("", TStringBuilder());
         TestEquals("a", TStringBuilder() << "a");
         TestEquals("a1", TStringBuilder() << "a" << 1);
         TestEquals("value: 123 name", TStringBuilder() << "value: " << TClassWithStreamOperator(123, "name"));
     }
 
-    SIMPLE_UNIT_TEST(TestStringBuilderOut) {
+    Y_UNIT_TEST(TestStringBuilderOut) {
         TString s;
         TStringOutput out(s);
         TStringBuilder sb;
@@ -38,7 +38,7 @@ SIMPLE_UNIT_TEST_SUITE(TStringBuilderTest) {
         TestEquals("a", s);
     }
 
-    SIMPLE_UNIT_TEST(TestStringBuilderRValue) {
+    Y_UNIT_TEST(TestStringBuilderRValue) {
         struct TRValueAcceptTester {
             static bool IsRValue(const TString&) {
                 return false;

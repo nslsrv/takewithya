@@ -11,6 +11,12 @@ NO_UTIL()
 NO_PLATFORM()
 NO_COMPILER_WARNINGS()
 
+IF (SANITIZER_TYPE STREQUAL thread)
+    NO_SANITIZE()
+
+    CFLAGS(-fPIC)
+ENDIF ()
+
 IF (SANITIZER_TYPE STREQUAL memory)
     NO_SANITIZE()
 
@@ -22,6 +28,8 @@ COMPILE_C_AS_CXX()
 CXXFLAGS(
     -fno-exceptions
 )
+
+SET_APPEND(CFLAGS -fno-lto)
 
 ADDINCL(
     GLOBAL contrib/libs/cxxsupp/openmp

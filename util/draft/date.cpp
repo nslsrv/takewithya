@@ -34,7 +34,7 @@ static time_t ParseDate(const char* dateStr) {
 
 template <>
 TDate FromStringImpl<TDate>(const char* data, size_t len) {
-    return TDate(ParseDate(~TString(data, len)));
+    return TDate(ParseDate(TString(data, len).data()));
 }
 
 TDate::TDate(const char* yyyymmdd)
@@ -53,7 +53,7 @@ TDate::TDate(time_t ts)
 }
 
 TDate::TDate(const TString& date, const TString& format)
-    : Timestamp(GetDateStart(ParseDate(~date, ~format)))
+    : Timestamp(GetDateStart(ParseDate(date.data(), format.data())))
 {
 }
 
@@ -67,6 +67,16 @@ TDate::TDate(unsigned year, unsigned month, unsigned monthDay) {
     Timestamp = mktime(&dateTm);
     if (Timestamp == (time_t)-1)
         ythrow yexception() << "Invalid TDate args:(" << year << ',' << month << ',' << monthDay << ')';
+}
+
+time_t TDate::GetStartUTC() const {
+    tm dateTm;
+    localtime_r(&Timestamp, &dateTm);
+    dateTm.tm_isdst = -1;
+    dateTm.tm_sec = 0;
+    dateTm.tm_min = 0;
+    dateTm.tm_hour = 0;
+    return TimeGM(&dateTm);
 }
 
 TString TDate::ToStroka(const char* format) const {

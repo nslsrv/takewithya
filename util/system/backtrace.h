@@ -1,9 +1,9 @@
 #pragma once
 
-#include "defaults.h"
+#include <util/generic/fwd.h>
+#include <util/system/defaults.h>
 
-class TOutputStream;
-class TString;
+class IOutputStream;
 
 size_t BackTrace(void** p, size_t len);
 
@@ -14,13 +14,14 @@ struct TResolvedSymbol {
 
 TResolvedSymbol ResolveSymbol(void* sym, char* buf, size_t len);
 
-void FormatBackTrace(TOutputStream* out, void* const* backtrace, size_t backtraceSize);
-void FormatBackTrace(TOutputStream* out);
+void FormatBackTrace(IOutputStream* out, void* const* backtrace, size_t backtraceSize);
+void FormatBackTrace(IOutputStream* out);
 void PrintBackTrace();
 
-using TFormatBackTraceFn = void (*)(TOutputStream*);
+using TFormatBackTraceFn = void (*)(IOutputStream*);
 
 TFormatBackTraceFn SetFormatBackTraceFn(TFormatBackTraceFn f);
+TFormatBackTraceFn GetFormatBackTraceFn();
 
 class TBackTrace {
 private:
@@ -31,6 +32,6 @@ private:
 public:
     TBackTrace();
     void Capture();
-    void PrintTo(TOutputStream&) const;
+    void PrintTo(IOutputStream&) const;
     TString PrintToString() const;
 };

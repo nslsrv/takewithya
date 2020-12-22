@@ -2,6 +2,8 @@ LIBRARY()
 
 
 
-SRCS(main.c)
+SRCS(
+    main.c
+)
 
 END()

@@ -1,9 +1,8 @@
 #include "format.h"
 #include "output.h"
 
+#include <util/generic/ymath.h>
 #include <util/string/cast.h>
-
-#include <cmath>
 
 namespace NFormatPrivate {
     static inline i64 Round(double value) {
@@ -12,14 +11,33 @@ namespace NFormatPrivate {
         return (value - res1 < res2 - value) ? (i64)res1 : (i64)res2;
     }
 
-    static inline TOutputStream& PrintDoubleShortly(TOutputStream& os, const double& d) {
-        os << Prec(d, 3);
-        return os;
+    static inline IOutputStream& PrintDoubleShortly(IOutputStream& os, const double& d) {
+        // General case: request 3 significant digits
+        // Side-effect: allows exponential representation
+        EFloatToStringMode mode = PREC_NDIGITS;
+        int ndigits = 3;
+
+        if (IsValidFloat(d) && Abs(d) < 1e12) {
+            // For reasonably-sized finite values, it's better to avoid
+            // exponential representation.
+            // Use compact fixed representation and determine
+            // precision based on magnitude.
+            mode = PREC_POINT_DIGITS_STRIP_ZEROES;
+            if (i64(Abs(d) * 100) < 1000) {
+                ndigits = 2;
+            } else if (i64(Abs(d) * 10) < 1000) {
+                ndigits = 1;
+            } else {
+                ndigits = 0;
+            }
+        }
+
+        return os << Prec(d, mode, ndigits);
     }
-} //NFormatPrivate
+}
 
 template <>
-void Out<NFormatPrivate::THumanReadableSize>(TOutputStream& stream, const NFormatPrivate::THumanReadableSize& value) {
+void Out<NFormatPrivate::THumanReadableSize>(IOutputStream& stream, const NFormatPrivate::THumanReadableSize& value) {
     ui64 base = value.Format == SF_BYTES ? 1024 : 1000;
     ui64 base2 = base * base;
     ui64 base3 = base * base2;
@@ -33,11 +51,11 @@ void Out<NFormatPrivate::THumanReadableSize>(TOutputStream& stream, const NForma
 
     if (v < base) {
         NFormatPrivate::PrintDoubleShortly(stream, v);
-    } else if (value.Value < base2) {
+    } else if (v < base2) {
         NFormatPrivate::PrintDoubleShortly(stream, v / (double)base) << 'K';
-    } else if (value.Value < base3) {
+    } else if (v < base3) {
         NFormatPrivate::PrintDoubleShortly(stream, v / (double)base2) << 'M';
-    } else if (value.Value < base4) {
+    } else if (v < base4) {
         NFormatPrivate::PrintDoubleShortly(stream, v / (double)base3) << 'G';
     } else {
         NFormatPrivate::PrintDoubleShortly(stream, v / (double)base4) << 'T';
@@ -53,7 +71,7 @@ void Out<NFormatPrivate::THumanReadableSize>(TOutputStream& stream, const NForma
 }
 
 template <>
-void Out<NFormatPrivate::THumanReadableDuration>(TOutputStream& os, const NFormatPrivate::THumanReadableDuration& hr) {
+void Out<NFormatPrivate::THumanReadableDuration>(IOutputStream& os, const NFormatPrivate::THumanReadableDuration& hr) {
     TTempBuf buf;
     TMemoryOutput ss(buf.Data(), buf.Size());
 
@@ -103,11 +121,11 @@ void Out<NFormatPrivate::THumanReadableDuration>(TOutputStream& os, const NForma
     os.Write(buf.Data(), written);
 }
 
-void Time(TOutputStream& l) {
+void Time(IOutputStream& l) {
     l << millisec();
 }
 
-void TimeHumanReadable(TOutputStream& l) {
+void TimeHumanReadable(IOutputStream& l) {
     char timeStr[30];
     const time_t t = time(nullptr);
 

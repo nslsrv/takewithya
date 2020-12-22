@@ -20,13 +20,14 @@
 
 #include <util/folder/dirut.h>
 #include <util/generic/singleton.h>
+#include <util/generic/function.h>
 #include <util/generic/yexception.h>
 #include <util/memory/tempbuf.h>
 #include <util/stream/file.h>
 #include <util/stream/pipe.h>
 #include <util/string/cast.h>
-#include "filemap.h"
 
+#include "filemap.h"
 #include "execpath.h"
 #include "fs.h"
 
@@ -100,7 +101,7 @@ static TString GetExecPathImpl() {
 #elif defined(_darwin_)
     TTempBuf execNameBuf;
     for (size_t i = 0; i < 2; ++i) {
-        uint32_t bufsize = (uint32_t)execNameBuf.Size();
+        std::remove_pointer_t<TFunctionArg<decltype(_NSGetExecutablePath), 1>> bufsize = execNameBuf.Size();
         int r = _NSGetExecutablePath(execNameBuf.Data(), &bufsize);
         if (r == 0) {
             return execNameBuf.Data();
@@ -139,7 +140,7 @@ static TString GetExecPathImpl() {
     if (FreeBSDGuessExecBasePath(getenv("PWD"), execPath)) {
         return execPath;
     }
-    if (FreeBSDGuessExecBasePath(~NFs::CurrentWorkingDirectory(), execPath)) {
+    if (FreeBSDGuessExecBasePath(NFs::CurrentWorkingDirectory(), execPath)) {
         return execPath;
     }
 
@@ -149,29 +150,45 @@ static TString GetExecPathImpl() {
 #endif
 }
 
+static bool GetPersistentExecPathImpl(TString& to) {
+#if defined(_solaris_)
+    to = TString("/proc/self/object/a.out");
+    return true;
+#elif defined(_linux_) || defined(_cygwin_)
+    to = TString("/proc/self/exe");
+    return true;
+#elif defined(_freebsd_)
+    to = TString("/proc/curproc/file");
+    return true;
+#else // defined(_win_) || defined(_darwin_)  or unknown
+    Y_UNUSED(to);
+    return false;
+#endif
+}
+
 namespace {
-    struct TExecPathHolder {
-        inline TExecPathHolder() {
+    struct TExecPathsHolder {
+        inline TExecPathsHolder() {
             ExecPath = GetExecPathImpl();
+
+            if (!GetPersistentExecPathImpl(PersistentExecPath)) {
+                PersistentExecPath = ExecPath;
+            }
+        }
+
+        static inline auto Instance() {
+            return SingletonWithPriority<TExecPathsHolder, 1>();
         }
 
         TString ExecPath;
+        TString PersistentExecPath;
     };
 }
 
 const TString& GetExecPath() {
-    return SingletonWithPriority<TExecPathHolder, 1>()->ExecPath;
+    return TExecPathsHolder::Instance()->ExecPath;
 }
 
-TMappedFile* OpenExecFile() {
-    TString path = GetExecPathImpl();
-    THolder<TMappedFile> mf(new TMappedFile(path));
-
-    TString path2 = GetExecPathImpl();
-    if (path != path2)
-        ythrow yexception() << "OpenExecFile(): something happened to the binary while we were opening it: "
-                               "filename changed 'on the fly' from <"
-                            << path << "> to <" << path2 << ">";
-
-    return mf.Release();
+const TString& GetPersistentExecPath() {
+    return TExecPathsHolder::Instance()->PersistentExecPath;
 }

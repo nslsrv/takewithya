@@ -1,45 +1,43 @@
 
 
 RECURSE(
-    appdirs
-    backports-shutil_get_terminal_size
-    colorama-0.3.6
+    atomicwrites
+    attrs
+    configparser
+    contextlib2
     dateutil
-    decorator-4.0.6
     enum34
-    ipython
-    ipython/bin
-    ipython_genutils-0.1.0
+    faulthandler
+    funcsigs
+    graphviz
+    importlib-metadata
     Jinja2
     MarkupSafe
-    numpy-1.11.1
-    packaging
+    more-itertools
+    numpy
     pandas
-    pandas/matplotlib
-    path.py
     pathlib2
-    pexpect-4.0.1
-    pickleshare-0.6
-    prompt_toolkit
-    ptyprocess-0.5
-    py-1.4.30
-    Pygments
-    pyparsing
+    pluggy
+    py
     pytest
     pytz
-    pytz/tests
-    PyYAML-3.11
-    requests
+    scandir
+    scipy
     setuptools
-    simplegeneric-0.8.1
     six
-    traitlets
-    wcwidth-0.1.6
+    subprocess32
+    testpath
 )
+
+IF (OS_WINDOWS)
+    RECURSE(
+    
+)
+ENDIF()
 
 IF (OS_DARWIN)
     RECURSE(
-    appnope
+    
 )
 ENDIF ()
 
@@ -47,4 +45,10 @@ IF (OS_LINUX)
     RECURSE(
     
 )
+
+    IF (NOT OS_SDK STREQUAL "ubuntu-12")
+        RECURSE(
+    
+)
+    ENDIF()
 ENDIF ()

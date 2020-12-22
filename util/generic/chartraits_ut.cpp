@@ -1,14 +1,11 @@
 #include "chartraits.h"
 
-#include <library/unittest/registar.h>
+#include <library/cpp/testing/unittest/registar.h>
 #include <util/charset/unidata.h>
 
-SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
-    SIMPLE_UNIT_TEST(TestLength) {
+Y_UNIT_TEST_SUITE(TCharTraits) {
+    Y_UNIT_TEST(TestLength) {
         using T = TCharTraits<char>;
-        UNIT_ASSERT_EQUAL(T::GetLength(""), 0);
-        UNIT_ASSERT_EQUAL(T::GetLength("abc"), 3);
-
         UNIT_ASSERT_EQUAL(T::GetLength("", 0), 0);
         UNIT_ASSERT_EQUAL(T::GetLength("abc", 0), 0);
         UNIT_ASSERT_EQUAL(T::GetLength("abc", 1), 1);
@@ -17,21 +14,17 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT_EQUAL(T::GetLength("abc", 1000), 3);
 
         // '\0'
-        UNIT_ASSERT_EQUAL(T::GetLength("\0"), 0);
         UNIT_ASSERT_EQUAL(T::GetLength("\0", 1000), 0);
-        UNIT_ASSERT_EQUAL(T::GetLength("a\0bc"), 1);
         UNIT_ASSERT_EQUAL(T::GetLength("\0abc", 1000), 0);
         UNIT_ASSERT_EQUAL(T::GetLength("a\0bc", 1000), 1);
     }
 
-    SIMPLE_UNIT_TEST(TestCompareEqual) {
+    Y_UNIT_TEST(TestCompare) {
         using T = TCharTraits<char>;
         // single char
         UNIT_ASSERT(T::Compare('a', 'a') == 0);
-        UNIT_ASSERT(T::Equal('a', 'a'));
         UNIT_ASSERT(T::Compare('a', 'b') < 0);
         UNIT_ASSERT(T::Compare('b', 'a') > 0);
-        UNIT_ASSERT(!T::Equal('a', 'A'));
 
         // empty
         UNIT_ASSERT(T::Compare(nullptr, nullptr, 0) == 0);
@@ -41,34 +34,40 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT(T::Compare("abcd", "") > 0);
 
         UNIT_ASSERT(T::Compare("abc", "abc") == 0);
-        UNIT_ASSERT(T::Equal("ab", "ab"));
         UNIT_ASSERT(T::Compare("abcd", "abc") > 0);
         UNIT_ASSERT(T::Compare("ab", "abc") < 0);
         UNIT_ASSERT(T::Compare("abcd", "bcda") < 0);
         UNIT_ASSERT(T::Compare("bcd", "abcd") > 0);
-        UNIT_ASSERT(!T::Equal("aaa", "aab"));
 
         UNIT_ASSERT(T::Compare("ab", "abc", 2) == 0);
-        UNIT_ASSERT(T::Equal("ab", "abc", 2));
         UNIT_ASSERT(T::Compare("abcA", "abcB", 3) == 0);
-        UNIT_ASSERT(T::Equal("abcA", "abcB", 3));
         UNIT_ASSERT(T::Compare("abcA", "abcB", 4) < 0);
-        UNIT_ASSERT(!T::Equal("abcB", "abcA", 4));
 
         // '\0' in the middle
         UNIT_ASSERT(T::Compare("ab\0ab", "ab\0ab", 5) == 0);
-        UNIT_ASSERT(T::Equal("ab\0ab", "ab\0ab", 5));
         UNIT_ASSERT(T::Compare("ab\0ab", "ab\0cd", 5) < 0);
         UNIT_ASSERT(T::Compare("ab\0cd", "ab\0ab", 5) > 0);
-        UNIT_ASSERT(T::Equal("ab\0A", "ab\0B", 3));
-        UNIT_ASSERT(!T::Equal("ab\0A", "ab\0B", 4));
         UNIT_ASSERT(T::Compare("ab\0ab", "ab\0cd") == 0);
         UNIT_ASSERT(T::Compare("ab\0cd", "ab\0ab") == 0);
-        UNIT_ASSERT(T::Equal("ab\0AAA", "ab\0BBB"));
-        UNIT_ASSERT(T::Equal("\0AAA", "\0BBB"));
     }
 
-    SIMPLE_UNIT_TEST(TestFind) {
+    Y_UNIT_TEST(TestLongCompare) {
+        using T = TCharTraits<char>;
+
+        i8 data1[Max<ui8>()];
+        i8 data2[Max<ui8>()];
+
+        for (ui8 i = 0; i < Max<ui8>(); ++i) {
+            data1[i] = i;
+            data2[i] = i;
+        }
+
+        UNIT_ASSERT(T::Compare(reinterpret_cast<const char*>(&data1[0]), reinterpret_cast<const char*>(&data2[0]), sizeof(data1)) == 0);
+        UNIT_ASSERT(T::Compare(reinterpret_cast<const char*>(&data1[0]), reinterpret_cast<const char*>(&data2[1]), sizeof(data1) - 1) == -1);
+        UNIT_ASSERT(T::Compare(reinterpret_cast<const char*>(&data1[1]), reinterpret_cast<const char*>(&data2[0]), sizeof(data1) - 1) == 1);
+    }
+
+    Y_UNIT_TEST(TestFind) {
         using T = TCharTraits<char>;
 
         const char* empty = "";
@@ -77,15 +76,12 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT_EQUAL(T::Find(abba, 'a'), abba);
         UNIT_ASSERT_EQUAL(T::Find(abba, 'b'), abba + 1);
         UNIT_ASSERT_EQUAL(T::Find(abba, '*'), nullptr);
-        UNIT_ASSERT_EQUAL(T::Find(abba, '\0'), abba + 4);
 
         UNIT_ASSERT_EQUAL(T::Find(abba, 'a', 1), abba);
         UNIT_ASSERT_EQUAL(T::Find(abba, 'b', 1), nullptr);
         UNIT_ASSERT_EQUAL(T::Find(abba, 'b', 2), abba + 1);
         UNIT_ASSERT_EQUAL(T::Find(abba, 'b', 3), abba + 1);
         UNIT_ASSERT_EQUAL(T::Find(abba, '*', 3), nullptr);
-        UNIT_ASSERT_EQUAL(T::Find(abba, '\0', 4), nullptr);
-        UNIT_ASSERT_EQUAL(T::Find(abba, '\0', 5), abba + 4);
 
         UNIT_ASSERT_EQUAL(T::Find(empty, ""), empty);
         UNIT_ASSERT_EQUAL(T::Find(empty, "a"), nullptr);
@@ -144,7 +140,7 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT_EQUAL(T::Find(ba0bab, 5, ba0bab, 6), nullptr);
     }
 
-    SIMPLE_UNIT_TEST(TestRFind) {
+    Y_UNIT_TEST(TestRFind) {
         using T = TCharTraits<char>;
 
         const char* empty = "";
@@ -153,42 +149,14 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'a'), abba + 3);
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'b'), abba + 2);
         UNIT_ASSERT_EQUAL(T::RFind(abba, '*'), nullptr);
-        UNIT_ASSERT_EQUAL(T::RFind(abba, '\0'), abba + 4);
-        UNIT_ASSERT_EQUAL(T::TBase::RFind(abba, '\0'), nullptr); // NOTE: base impl gives different result
 
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'a', 1), abba);
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'b', 1), nullptr);
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'b', 2), abba + 1);
         UNIT_ASSERT_EQUAL(T::RFind(abba, 'b', 3), abba + 2);
         UNIT_ASSERT_EQUAL(T::RFind(abba, '*', 3), nullptr);
-        UNIT_ASSERT_EQUAL(T::RFind(abba, '\0', 4), nullptr);
-        UNIT_ASSERT_EQUAL(T::RFind(abba, '\0', 5), abba + 4);
 
         // TODO: tests for RFind(const TCharType*, size_t, const TCharType*, size_t, size_t)
-    }
-
-    bool CheckHash(const char* s1, size_t l1, const char* s2, size_t l2) {
-        bool sameStr = TCharTraits<char>::Equal(s1, l1, s2, l2);
-        bool sameHash = TCharTraits<char>::GetHash(s1, l1) ==
-                        TCharTraits<char>::GetHash(s2, l2);
-        return sameHash == sameStr;
-    }
-
-    SIMPLE_UNIT_TEST(TestHash) {
-        const char* abc1 = "abc1";
-        const char* abc2 = "abc2";
-
-        for (size_t i = 0; i <= 4; ++i)
-            UNIT_ASSERT(CheckHash(abc1, i, abc2, i));
-
-        const TString str("abc\0abcabc", 10);
-        //UNIT_ASSERT_EQUAL(str.size(), 10);
-        for (size_t b1 = 0; b1 <= str.size(); ++b1)
-            for (size_t e1 = b1; e1 <= str.size(); ++e1)
-                for (size_t b2 = 0; b2 <= str.size(); ++b2)
-                    for (size_t e2 = b2; e2 <= str.size(); ++e2)
-                        UNIT_ASSERT(CheckHash(str.c_str() + b1, e1 - b1,
-                                              str.c_str() + b2, e2 - b2));
     }
 
     template <typename TCharType>
@@ -201,66 +169,44 @@ SIMPLE_UNIT_TEST_SUITE(TCharTraits) {
         UNIT_ASSERT_EQUAL(T::ToLower('$'), '$');
     }
 
-    SIMPLE_UNIT_TEST(TestCase) {
+    Y_UNIT_TEST(TestCase) {
         TestToLower<char>();
         TestToLower<wchar16>();
     }
-
-    SIMPLE_UNIT_TEST(TestMutable) {
-        using T = TCharTraits<char>;
-
-        TString str("12345");
-        char* b = str.begin();
-        UNIT_ASSERT_EQUAL(T::Move(b, b + 2, 3), b);
-        UNIT_ASSERT_EQUAL(str, "34545");
-
-        UNIT_ASSERT_EQUAL(T::Copy(b + 3, b, 2), b + 3);
-        UNIT_ASSERT_EQUAL(str, "34534");
-        UNIT_ASSERT_EQUAL(T::Copy(b, "123", 3), b);
-        UNIT_ASSERT_EQUAL(str, "12334");
-
-        UNIT_ASSERT_EQUAL(T::Assign(b, 2, '7'), b);
-        UNIT_ASSERT_EQUAL(str, "77334");
-
-        T::Reverse(b, 5);
-        UNIT_ASSERT_EQUAL(str, "43377");
-        T::Reverse(b + 2, 2);
-        UNIT_ASSERT_EQUAL(str, "43737");
-    }
 }
 
-SIMPLE_UNIT_TEST_SUITE(TFastFindFirstOf) {
-    SIMPLE_UNIT_TEST(Test0) {
+Y_UNIT_TEST_SUITE(TFastFindFirstOf) {
+    Y_UNIT_TEST(Test0) {
         const char* s = "abcd";
 
         UNIT_ASSERT_EQUAL(FastFindFirstOf(s, 4, nullptr, 0) - s, 4);
     }
 
-    SIMPLE_UNIT_TEST(Test1) {
+    Y_UNIT_TEST(Test1) {
         const char* s = "abcd";
 
         UNIT_ASSERT_EQUAL(FastFindFirstOf(s, 4, "b", 1) - s, 1);
     }
 
-    SIMPLE_UNIT_TEST(Test1NotFound) {
+    Y_UNIT_TEST(Test1NotFound) {
         const char* s = "abcd";
 
         UNIT_ASSERT_EQUAL(FastFindFirstOf(s, 4, "x", 1) - s, 4);
     }
 
-    SIMPLE_UNIT_TEST(Test2) {
+    Y_UNIT_TEST(Test2) {
         const char* s = "abcd";
 
         UNIT_ASSERT_EQUAL(FastFindFirstOf(s, 4, "xc", 2) - s, 2);
     }
 
-    SIMPLE_UNIT_TEST(Test3) {
+    Y_UNIT_TEST(Test3) {
         const char* s = "abcde";
 
         UNIT_ASSERT_EQUAL(FastFindFirstOf(s, 5, "edc", 3) - s, 2);
     }
 
-    SIMPLE_UNIT_TEST(TestNot) {
+    Y_UNIT_TEST(TestNot) {
         const char* s = "abcd";
 
         UNIT_ASSERT_EQUAL(FastFindFirstNotOf(s, 4, "ab", 2) - s, 2);

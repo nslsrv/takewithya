@@ -1,9 +1,9 @@
 import sys
 
 TEMPLATE="""
-#include <kikimr/yql/udfs/common/python/python_udf/python_udf.h>
+#include <yql/udfs/common/python/python_udf/python_udf.h>
 
-#include <kikimr/yql/library/udf/udf_registrator.h>
+#include <yql/library/udf/udf_registrator.h>
 
 using namespace NKikimr::NUdf;
 
@@ -11,12 +11,16 @@ using namespace NKikimr::NUdf;
 
 extern "C" UDF_API void Register(IRegistrator& registrator, ui32 flags)
 {
-    RegisterYqlPythonUdf(registrator, flags, STRINGBUF("@MODULE_NAME@"), STRINGBUF("@PACKAGE_NAME@"), EPythonFlavor::@FLAVOR@);
+    RegisterYqlPythonUdf(registrator, flags, AsStringBuf("@MODULE_NAME@"), AsStringBuf("@PACKAGE_NAME@"), EPythonFlavor::@FLAVOR@);
     }
 
     extern "C" UDF_API ui32 AbiVersion()
     {
         return CurrentAbiVersion();
+    }
+
+    extern "C" UDF_API void SetBackTraceCallback(TBackTraceCallback callback) {
+        SetBackTraceCallbackImpl(callback);
     }
 #endif
 """

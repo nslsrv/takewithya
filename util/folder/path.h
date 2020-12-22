@@ -22,8 +22,6 @@ class TFsPath {
 private:
     struct TSplit;
 
-    TFsPath(const TString& path, const TString& realPath);
-
 public:
     TFsPath();
     TFsPath(const TString& path);
@@ -40,8 +38,8 @@ public:
         return IsDefined();
     }
 
-    inline const char* operator~() const {
-        return ~Path_;
+    inline const char* c_str() const {
+        return Path_.c_str();
     }
 
     inline operator const TString&() const {
@@ -84,13 +82,39 @@ public:
     bool IsAbsolute() const;
     bool IsRelative() const;
 
+    /**
+     * TFsPath("/a/b").IsSubpathOf("/a")        -> true
+     *
+     * TFsPath("/a").IsSubpathOf("/a")          -> false
+     *
+     * TFsPath("/a").IsSubpathOf("/other/path") -> false
+     * @param that - presumable parent path of this
+     * @return True if this is a subpath of that and false otherwise.
+     */
     bool IsSubpathOf(const TFsPath& that) const;
+
+    /**
+     * TFsPath("/a/b").IsNonStrictSubpathOf("/a")        -> true
+     *
+     * TFsPath("/a").IsNonStrictSubpathOf("/a")          -> true
+     *
+     * TFsPath("/a").IsNonStrictSubpathOf("/other/path") -> false
+     * @param that - presumable parent path of this
+     * @return True if this is a subpath of that or they are equivalent and false otherwise.
+     */
+    bool IsNonStrictSubpathOf(const TFsPath& that) const;
+    
     bool IsContainerOf(const TFsPath& that) const {
         return that.IsSubpathOf(*this);
     }
 
     TFsPath RelativeTo(const TFsPath& root) const;   //must be subpath of root
+
+    /**
+     * @returns relative path or empty path if root equals to this.
+     */
     TFsPath RelativePath(const TFsPath& root) const; //..; for relative paths 1st component must be the same
+
     /**
      * Never fails. Returns this if already a root.
      */
@@ -109,6 +133,8 @@ public:
      * @brief create this directory
      *
      * @param mode specifies permissions to use as described in mkdir(2), makes sense only on Unix-like systems.
+     *
+     * Nothing to do if dir exists.
      */
     void MkDir(const int mode = MODE0777) const;
 
@@ -120,8 +146,11 @@ public:
     void MkDirs(const int mode = MODE0777) const;
 
     // XXX: rewrite to return iterator
-    void List(yvector<TFsPath>& children) const;
-    void ListNames(yvector<TString>& children) const;
+    void List(TVector<TFsPath>& children) const;
+    void ListNames(TVector<TString>& children) const;
+
+    // Check, if path contains at least one component with a specific name.
+    bool Contains(const TString& component) const;
 
     // fails to delete non-empty directory
     void DeleteIfExists() const;
@@ -131,7 +160,7 @@ public:
     // XXX: ino
 
     inline bool Stat(TFileStat& stat) const {
-        stat = TFileStat(~Path_);
+        stat = TFileStat(Path_.data());
 
         return stat.Mode;
     }
@@ -164,7 +193,6 @@ public:
 
     inline void Swap(TFsPath& p) noexcept {
         DoSwap(Path_, p.Path_);
-        DoSwap(RealPath_, p.RealPath_);
         Split_.Swap(p.Split_);
     }
 
@@ -174,8 +202,7 @@ private:
 
 private:
     TString Path_;
-    /// caches
-    mutable TString RealPath_;
+    /// cache
     mutable TSimpleIntrusivePtr<TSplit> Split_;
 };
 
