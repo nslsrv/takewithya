@@ -1,3 +1,11 @@
+Source code of "takewithya" derivates from "Catboost" source code and includes only its build system wireframe.
+
+Responsible for build system extraction: Nikita Slyusarev
+
+While not distributing any catboost-specific code, we are obliged to list the original "Catboost" authors.
+
+--------------------------------------------------------------------------------
+
 The following authors have created the source code of «CatBoost» published and distributed by YANDEX LLC as the owner:
 
 Chief researcher, author of the algorithm and of the first implementation:
