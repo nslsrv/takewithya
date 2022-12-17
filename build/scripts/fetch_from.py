@@ -223,7 +223,26 @@ def fetch_url(url, unpack, resource_file_name, expected_md5=None, expected_sha1=
         tmp_dir = tmp_file_name + '.dir'
         os.makedirs(tmp_dir)
         with tarfile.open(tmp_file_name, mode="r|gz") as tar:
-            tar.extractall(tmp_dir)
+            def is_within_directory(directory, target):
+                
+                abs_directory = os.path.abspath(directory)
+                abs_target = os.path.abspath(target)
+            
+                prefix = os.path.commonprefix([abs_directory, abs_target])
+                
+                return prefix == abs_directory
+            
+            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+            
+                for member in tar.getmembers():
+                    member_path = os.path.join(path, member.name)
+                    if not is_within_directory(path, member_path):
+                        raise Exception("Attempted Path Traversal in Tar File")
+            
+                tar.extractall(path, members, numeric_owner=numeric_owner) 
+                
+            
+            safe_extract(tar, tmp_dir)
         tmp_file_name = os.path.join(tmp_dir, resource_file_name)
         real_md5 = md5file(tmp_file_name)
 
@@ -324,7 +343,26 @@ def process(fetched_file, file_name, args, remove=True):
             with tarfile.open(fetched_file, mode='r:*') as tar:
                 inputs = set(map(os.path.normpath, args.rename + args.outputs[len(args.rename):]))
                 members = [entry for entry in tar if os.path.normpath(os.path.join(args.untar_to, entry.name)) in inputs]
-                tar.extractall(args.untar_to, members=members)
+                def is_within_directory(directory, target):
+                    
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    
+                    return prefix == abs_directory
+                
+                def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+                
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not is_within_directory(path, member_path):
+                            raise Exception("Attempted Path Traversal in Tar File")
+                
+                    tar.extractall(path, members, numeric_owner=numeric_owner) 
+                    
+                
+                safe_extract(tar, args.untar_to, members=members)
             # Forbid changes to the loaded resource data
             for root, _, files in os.walk(args.untar_to):
                 for filename in files:

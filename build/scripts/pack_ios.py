@@ -28,7 +28,26 @@ def just_do_it():
         print >> sys.stderr, 'Many IOS_INTERFACE modules found, {} will be used'.format(app_tar[-1])
     app_tar = app_tar[-1]
     with tarfile.open(app_tar) as tf:
-        tf.extractall(args.temp_dir)
+        def is_within_directory(directory, target):
+            
+            abs_directory = os.path.abspath(directory)
+            abs_target = os.path.abspath(target)
+        
+            prefix = os.path.commonprefix([abs_directory, abs_target])
+            
+            return prefix == abs_directory
+        
+        def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+        
+            for member in tar.getmembers():
+                member_path = os.path.join(path, member.name)
+                if not is_within_directory(path, member_path):
+                    raise Exception("Attempted Path Traversal in Tar File")
+        
+            tar.extractall(path, members, numeric_owner=numeric_owner) 
+            
+        
+        safe_extract(tf, args.temp_dir)
     tar_suffix = '.default.ios.interface' if app_tar.endswith('.default.ios.interface') else '.ios.interface'
     app_unpacked_path = os.path.join(args.temp_dir, os.path.basename(app_tar)[:-len(tar_suffix)] + '.app')
     if not os.path.exists(app_unpacked_path):
